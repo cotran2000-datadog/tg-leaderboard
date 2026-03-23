@@ -1,0 +1,276 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
+<html>
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <meta http-equiv="Content-Style-Type" content="text/css">
+  <title></title>
+  <meta name="Generator" content="Cocoa HTML Writer">
+  <meta name="CocoaVersion" content="2685.4">
+  <style type="text/css">
+    p.p1 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; -webkit-text-stroke: #000000}
+    p.p2 {margin: 0.0px 0.0px 0.0px 0.0px; font: 12.0px Helvetica; -webkit-text-stroke: #000000; min-height: 14.0px}
+    span.s1 {font-kerning: none}
+  </style>
+</head>
+<body>
+<p class="p1"><span class="s1">&lt;!DOCTYPE html&gt;</span></p>
+<p class="p1"><span class="s1">&lt;html lang="en"&gt;</span></p>
+<p class="p1"><span class="s1">&lt;head&gt;</span></p>
+<p class="p1"><span class="s1">&lt;meta charset="UTF-8"/&gt;</span></p>
+<p class="p1"><span class="s1">&lt;meta name="viewport" content="width=device-width,initial-scale=1"/&gt;</span></p>
+<p class="p1"><span class="s1">&lt;title&gt;TG Power Lap Leaderboard&lt;/title&gt;</span></p>
+<p class="p1"><span class="s1">&lt;script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"&gt;&lt;/script&gt;</span></p>
+<p class="p1"><span class="s1">&lt;style&gt;</span></p>
+<p class="p1"><span class="s1">*{box-sizing:border-box;margin:0;padding:0}</span></p>
+<p class="p1"><span class="s1">body{font-family:'Arial Black',Arial,sans-serif;background:#0a0a0a;color:#fff;min-height:100vh}</span></p>
+<p class="p1"><span class="s1">input,button{font-family:'Arial Black',Arial,sans-serif;outline:none}</span></p>
+<p class="p1"><span class="s1">button{cursor:pointer}</span></p>
+<p class="p1"><span class="s1">@keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}</span></p>
+<p class="p1"><span class="s1">@keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}</span></p>
+<p class="p1"><span class="s1">.row{animation:fadeIn .3s ease}</span></p>
+<p class="p1"><span class="s1">&lt;/style&gt;</span></p>
+<p class="p1"><span class="s1">&lt;/head&gt;</span></p>
+<p class="p1"><span class="s1">&lt;body&gt;</span></p>
+<p class="p1"><span class="s1">&lt;div id="app"&gt;&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1">&lt;script&gt;</span></p>
+<p class="p1"><span class="s1">const API='https://script.google.com/macros/s/AKfycbyY0_NEbZF6EXccgI5ri4StsSfbPL7fWURbKF4HphzLKvCjxWhBXoD2wXrlqTtj2Q0/exec';</span></p>
+<p class="p1"><span class="s1">const ADMIN_PIN='1234';</span></p>
+<p class="p1"><span class="s1">let entries=[];</span></p>
+<p class="p1"><span class="s1">let currentView='entry';</span></p>
+<p class="p1"><span class="s1">let submittedName='';</span></p>
+<p class="p1"><span class="s1">const MEDALS=['#E8B400','#9CA3AF','#CD7F32'];</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">function parseTime(v){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>v=v.trim();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>let m=v.match(/^(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?$/);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(m)return+m[1]*60000+ +m[2]*1000+parseInt((m[3]||'0').padEnd(3,'0'));</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>m=v.match(/^(\d+)(?:\.(\d{1,3}))?$/);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(m)return+m[1]*1000+parseInt((m[2]||'0').padEnd(3,'0'));</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>return null;</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p1"><span class="s1">function fmt(ms){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000),cs=Math.floor(ms%1000/10);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>return m&gt;0?`${m}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`:`${s}.${String(cs).padStart(2,'0')}`;</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p1"><span class="s1">function esc(s){return String(s).replace(/&amp;/g,'&amp;amp;').replace(/&lt;/g,'&amp;lt;').replace(/&gt;/g,'&amp;gt;')}</span></p>
+<p class="p1"><span class="s1">function sorted(){return [...entries].sort((a,b)=&gt;a.ms-b.ms)}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">async function fetchEntries(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const res=await fetch(API+'?t='+Date.now());</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const data=await res.json();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>entries=data.map(e=&gt;({...e,ms:Number(e.ms)}));</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">async function postEntry(entry){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>await fetch(API,{</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>method:'POST',</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>mode:'no-cors',</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>headers:{'Content-Type':'application/json'},</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>body:JSON.stringify(entry)</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>});</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">async function pollEntries(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>try{</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await fetchEntries();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>if(currentView==='dashboard')renderApp();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}catch(e){console.warn('Poll failed',e)}</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">async function doSubmit(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const n=(document.getElementById('inp-name')?.value||'').trim();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const t=(document.getElementById('inp-time')?.value||'').trim();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const err=document.getElementById('err');</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(!n){err.style.display='block';err.textContent='Enter your name';return}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const ms=parseTime(t);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(!ms||ms&lt;=0){err.style.display='block';err.textContent='Enter a valid time — e.g. 1:23.45 or 83.45';return}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const btn=document.getElementById('submit-btn');</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(btn){btn.textContent='Saving...';btn.disabled=true;}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>try{</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>const entry={id:Date.now(),name:n,ms,ts:Date.now()};</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>// Optimistic local update</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>const idx=entries.findIndex(e=&gt;e.name.toLowerCase()===n.toLowerCase());</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>if(idx&gt;=0)entries[idx]=entry;else entries.push(entry);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await postEntry(entry);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>// no-cors means we can't read response — wait briefly then re-fetch</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await new Promise(r=&gt;setTimeout(r,1200));</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await fetchEntries();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>submittedName=n;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>renderApp();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}catch(e){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>if(btn){btn.textContent='Set Time';btn.disabled=false;}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>const err2=document.getElementById('err');</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>if(err2){err2.style.display='block';err2.textContent='Sync failed — check connection';}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">async function doReset(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const p=document.getElementById('pin-inp')?.value;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(p===ADMIN_PIN){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>// Post a special reset command</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({reset:true})});</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await new Promise(r=&gt;setTimeout(r,1200));</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await fetchEntries();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>hideAdminModal();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>renderApp();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}else{</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>const e=document.getElementById('pin-err');</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>if(e)e.style.display='block';</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">function showAdminModal(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const m=document.getElementById('admin-modal');</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(m){m.style.display='flex';document.getElementById('pin-inp').value='';document.getElementById('pin-err').style.display='none';}</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p1"><span class="s1">function hideAdminModal(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const m=document.getElementById('admin-modal');</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(m)m.style.display='none';</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">function renderApp(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>document.getElementById('app').innerHTML=currentView==='dashboard'?renderDashboard():renderEntry();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>if(currentView==='dashboard'){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>const qrEl=document.getElementById('qr-box');</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>if(qrEl) new QRCode(qrEl,{text:location.href.split('?')[0],width:100,height:100,colorDark:'#ffffff',colorLight:'#1a1a1a'});</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">function renderEntry(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const board=sorted();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const rows=board.slice(0,5).map((e,i)=&gt;`</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="display:flex;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;span style="width:20px;font-size:13px;font-weight:900;color:${i&lt;3?MEDALS[i]:'rgba(255,255,255,0.28)'};text-align:center"&gt;${i===0?'⭐':i+1}&lt;/span&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;span style="flex:1;font-size:14px;opacity:.8;text-transform:uppercase;letter-spacing:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"&gt;${esc(e.name)}&lt;/span&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;span style="font-family:'Courier New',monospace;font-size:16px;font-weight:900;color:${i===0?'#e8b400':'rgba(255,255,255,0.7)'};letter-spacing:1px"&gt;${fmt(e.ms)}&lt;/span&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;`).join('');</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>return`&lt;div style="min-height:100vh;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;div style="width:100%;max-width:400px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="text-align:center;margin-bottom:28px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:#cc0000;border-radius:6px;margin-bottom:12px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span style="font-size:28px;font-weight:900;color:#fff;letter-spacing:-2px"&gt;TG&lt;/span&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:22px;font-weight:900;letter-spacing:3px;text-transform:uppercase"&gt;Power Lap&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:11px;letter-spacing:4px;opacity:.45;text-transform:uppercase;margin-top:4px"&gt;Submit your time&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>${submittedName?`</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="background:rgba(232,180,0,0.08);border:1px solid rgba(232,180,0,0.35);border-radius:8px;padding:32px 24px;text-align:center"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:40px"&gt;⭐&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:20px;font-weight:900;margin-top:10px;letter-spacing:1px;text-transform:uppercase"&gt;Time Set!&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:13px;opacity:.45;margin-top:6px;letter-spacing:1px"&gt;Check the big screen&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;button onclick="submittedName='';renderApp()" style="margin-top:24px;background:#cc0000;border:none;color:#fff;padding:12px 28px;font-size:14px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:2px;text-transform:uppercase"&gt;Submit Again&lt;/button&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;`:`</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:28px 24px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="margin-bottom:18px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px"&gt;Your Name&lt;/label&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input id="inp-name" placeholder="e.g. The Stig" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:18px;border-radius:4px;font-family:inherit"/&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="margin-bottom:22px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px"&gt;Lap Time&lt;/label&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;input id="inp-time" placeholder="e.g. 1:19.43 or 79.43" onkeydown="if(event.key==='Enter')doSubmit()"</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">          </span>style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:22px;border-radius:4px;font-family:'Courier New',monospace;letter-spacing:2px"/&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="font-size:10px;opacity:.28;margin-top:6px;letter-spacing:1px"&gt;Format: m:ss.cs &amp;nbsp;or&amp;nbsp; ss.cs&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div id="err" style="color:#f87171;font-size:13px;margin-bottom:14px;text-align:center;letter-spacing:1px;display:none"&gt;&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;button id="submit-btn" onclick="doSubmit()" style="width:100%;background:#cc0000;border:none;color:#fff;padding:16px;font-size:16px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:3px;text-transform:uppercase"&gt;Set Time&lt;/button&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;`}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>${board.length&gt;0?`&lt;div style="margin-top:24px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.28;text-align:center;margin-bottom:12px"&gt;Current standings&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>${rows}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;`:''}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:20px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>Open Dashboard View →</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/button&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1">&lt;/div&gt;`;</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">function renderDashboard(){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const board=sorted();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>const rows=board.length===0</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>?`&lt;div style="text-align:center;padding:80px 0;opacity:.22;font-size:20px;letter-spacing:4px;text-transform:uppercase"&gt;No times set yet&lt;/div&gt;`</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>:board.map((e,i)=&gt;{</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>const isFirst=i===0;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>const gap=i&gt;0?e.ms-board[0].ms:null;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>return`&lt;div class="row" style="display:flex;align-items:center;gap:16px;background:${isFirst?'linear-gradient(90deg,rgba(232,180,0,0.14),rgba(232,180,0,0.03))':'rgba(255,255,255,0.04)'};border:1px solid ${isFirst?'rgba(232,180,0,0.45)':'rgba(255,255,255,0.07)'};border-radius:6px;padding:14px 20px;margin-bottom:10px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="width:48px;text-align:center;flex-shrink:0"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">          </span>&lt;div style="font-size:${isFirst?24:16}px;font-weight:900;color:${i&lt;3?MEDALS[i]:'rgba(255,255,255,0.3)'};line-height:1"&gt;${isFirst?'⭐':i+1}&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">          </span>${isFirst?`&lt;div style="font-size:9px;color:#e8b400;letter-spacing:2px;margin-top:2px;text-transform:uppercase"&gt;Fastest&lt;/div&gt;`:''}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="flex:1;font-size:${isFirst?22:17}px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:${isFirst?'#fff':'rgba(255,255,255,0.82)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap"&gt;${esc(e.name)}&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>${gap!==null?`&lt;div style="font-size:12px;color:rgba(255,255,255,0.3);letter-spacing:1px;min-width:72px;text-align:right"&gt;+${fmt(gap)}&lt;/div&gt;`:''}</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="font-family:'Courier New',monospace;font-size:${isFirst?32:22}px;font-weight:900;color:${isFirst?'#e8b400':i&lt;3?MEDALS[i]:'rgba(255,255,255,0.85)'};letter-spacing:2px;min-width:110px;text-align:right"&gt;${fmt(e.ms)}&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;`;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>}).join('');</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>return`&lt;div style="background:#0a0a0a;min-height:100vh"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;div style="background:linear-gradient(90deg,#cc0000,#880000);padding:16px 28px;display:flex;align-items:center;justify-content:space-between;border-bottom:4px solid #dd0000"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="display:flex;align-items:center;gap:14px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="width:52px;height:52px;background:#fff;border-radius:4px;display:flex;align-items:center;justify-content:center;flex-shrink:0"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;span style="font-size:24px;font-weight:900;color:#cc0000;letter-spacing:-2px"&gt;TG&lt;/span&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="font-size:26px;font-weight:900;letter-spacing:3px;text-transform:uppercase;line-height:1"&gt;The Power Lap&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="font-size:11px;letter-spacing:4px;opacity:.7;text-transform:uppercase;margin-top:3px"&gt;Leaderboard&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="display:flex;gap:10px;align-items:center"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;button onclick="currentView='entry';renderApp()" style="background:transparent;border:2px solid rgba(255,255,255,0.4);color:#fff;padding:8px 16px;font-size:12px;letter-spacing:1px;border-radius:3px;font-family:inherit;text-transform:uppercase"&gt;Entry Mode&lt;/button&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;button onclick="showAdminModal()" style="background:transparent;border:2px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.4);padding:8px 12px;font-size:12px;border-radius:3px;font-family:inherit"&gt;Reset&lt;/button&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;/div&gt;</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;div style="display:flex;gap:24px;padding:24px 28px;max-width:1100px;margin:0 auto"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="flex:1"&gt;${rows}&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="width:160px;flex-shrink:0;padding-top:8px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;text-align:center"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:12px"&gt;Scan to enter&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div id="qr-box" style="background:#1a1a1a;display:inline-block"&gt;&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="font-size:9px;opacity:.25;margin-top:10px;letter-spacing:1px;word-break:break-all"&gt;${esc(location.href.split('?')[0])}&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="margin-top:12px;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;letter-spacing:2px;text-transform:uppercase;opacity:.35"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;div style="width:6px;height:6px;border-radius:50%;background:#4ade80;animation:blink 2s infinite"&gt;&lt;/div&gt;LIVE</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;/div&gt;</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;div id="admin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);align-items:center;justify-content:center;z-index:99"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;div style="background:#1c1c1c;border:1px solid rgba(255,255,255,0.13);border-radius:8px;padding:32px;width:300px;text-align:center"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:17px;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px"&gt;Admin Reset&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:12px;opacity:.35;letter-spacing:1px;margin-bottom:20px"&gt;Enter PIN to clear all times&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;input id="pin-inp" type="password" placeholder="PIN" onkeydown="if(event.key==='Enter')doReset()"</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.18);color:#fff;padding:10px 14px;font-size:22px;border-radius:4px;text-align:center;font-family:monospace;margin-bottom:8px"/&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div id="pin-err" style="color:#f87171;font-size:12px;margin-bottom:8px;display:none"&gt;Wrong PIN&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="display:flex;gap:8px;margin-top:8px"&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;button onclick="hideAdminModal()" style="flex:1;background:transparent;border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.55);padding:10px;border-radius:4px;font-family:inherit;font-size:13px"&gt;Cancel&lt;/button&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">        </span>&lt;button onclick="doReset()" style="flex:1;background:#cc0000;border:none;color:#fff;padding:10px;border-radius:4px;font-family:inherit;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase"&gt;Reset&lt;/button&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">      </span>&lt;div style="font-size:10px;opacity:.2;margin-top:14px;letter-spacing:1px"&gt;Default PIN: 1234&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>&lt;/div&gt;</span></p>
+<p class="p1"><span class="s1">&lt;/div&gt;`;</span></p>
+<p class="p1"><span class="s1">}</span></p>
+<p class="p2"><span class="s1"></span><br></p>
+<p class="p1"><span class="s1">// Boot</span></p>
+<p class="p1"><span class="s1">(async()=&gt;{</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>document.getElementById('app').innerHTML=`&lt;div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;font-size:14px;letter-spacing:3px;text-transform:uppercase;opacity:.4"&gt;Connecting...&lt;/div&gt;`;</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>try{</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>await fetchEntries();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>renderApp();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>setInterval(pollEntries,4000);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}catch(e){</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>// If fetch fails (CORS), start with empty entries and still render</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>console.warn('Initial fetch failed, starting empty:',e);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>renderApp();</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">    </span>setInterval(pollEntries,4000);</span></p>
+<p class="p1"><span class="s1"><span class="Apple-converted-space">  </span>}</span></p>
+<p class="p1"><span class="s1">})();</span></p>
+<p class="p1"><span class="s1">&lt;/script&gt;</span></p>
+<p class="p1"><span class="s1">&lt;/body&gt;</span></p>
+<p class="p1"><span class="s1">&lt;/html&gt;</span></p>
+</body>
+</html>
