@@ -2,17 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no"/>
 <title>TEE Multi-tasking Leaderboard</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Arial Black',Arial,sans-serif;background:#0a0a0a;color:#fff;min-height:100vh}
-input,button{font-family:'Arial Black',Arial,sans-serif;outline:none}
+input,button,select{font-family:'Arial Black',Arial,sans-serif;outline:none}
 button{cursor:pointer}
+select{cursor:pointer}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(0.96)}}
 .row{animation:fadeIn .3s ease}
+.lap-btn{
+  width:100%;padding:28px 0;font-size:22px;font-weight:900;letter-spacing:3px;
+  text-transform:uppercase;border:none;border-radius:12px;color:#fff;
+  transition:background .2s,transform .1s;touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+}
+.lap-btn:active{transform:scale(0.97)}
 </style>
 </head>
 <body>
@@ -20,77 +29,221 @@ button{cursor:pointer}
 <script>
 const API='https://script.google.com/macros/s/AKfycbyY0_NEbZF6EXccgI5ri4StsSfbPL7fWURbKF4HphzLKvCjxWhBXoD2wXrlqTtj2Q0/exec';
 const ADMIN_PIN='1234';
-let entries=[];
-let currentView='entry';
-let submittedName='';
+const LAP3_CODE='LAP3';
 const MEDALS=['#E8B400','#9CA3AF','#CD7F32'];
 
-function parseTime(v){
-  v=(v||'').trim();
-  let m=v.match(/^(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?$/);
-  if(m)return+m[1]*60000+ +m[2]*1000+parseInt((m[3]||'0').padEnd(3,'0'));
-  m=v.match(/^(\d+)(?:\.(\d{1,3}))?$/);
-  if(m)return+m[1]*1000+parseInt((m[2]||'0').padEnd(3,'0'));
-  return null;
-}
+let entries=[];
+let currentView='entry'; // entry | dashboard
+let phase=1; // 1=laps1&2  3=lap3
+let submittedName='';
+
+// Stopwatch state
+let swRunning=false;
+let swStart=0;      // Date.now() when started
+let swLap1=0;       // ms for lap1
+let swLap2=0;       // ms for lap2
+let swLap3=0;
+let swLapsDone=0;   // 0=not started, 1=lap1 done, 2=both done
+let swTick=null;
+
 function fmt(ms){
   if(!ms&&ms!==0)return'—';
-  const m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000),cs=Math.floor(ms%1000/10);
-  return m>0?`${m}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`:`${s}.${String(cs).padStart(2,'0')}`;
+  const neg=ms<0; const abs=Math.abs(ms);
+  const m=Math.floor(abs/60000),s=Math.floor(abs%60000/1000),cs=Math.floor(abs%1000/10);
+  const t=m>0?`${m}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`:`${s}.${String(cs).padStart(2,'0')}`;
+  return neg?'-'+t:t;
 }
+function fmtLive(ms){
+  const m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000),cs=Math.floor(ms%1000/10);
+  return`${m>0?m+':':''}${m>0?String(s).padStart(2,'0'):s}.${String(cs).padStart(2,'0')}`;
+}
+function fmtGap(ms){return(ms<=0?'':'+')+(fmt(ms))}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function sorted(){
-  return [...entries]
-    .filter(e=>e.ms1&&e.ms2)
-    .sort((a,b)=>(a.ms1+a.ms2)-(b.ms1+b.ms2))
-    .concat(entries.filter(e=>!e.ms1||!e.ms2).sort((a,b)=>a.name.localeCompare(b.name)));
+function sorted12(){return [...entries].filter(e=>e.ms1&&e.ms2).sort((a,b)=>(a.ms1+a.ms2)-(b.ms1+b.ms2))}
+function sortedFinal(){
+  return [...entries].filter(e=>e.ms1&&e.ms2&&e.ms3)
+    .map(e=>({...e,gap:e.ms3-(e.ms1+e.ms2)}))
+    .sort((a,b)=>Math.abs(a.gap)-Math.abs(b.gap));
 }
 
 async function fetchEntries(){
   const res=await fetch(API+'?t='+Date.now());
   const data=await res.json();
-  entries=data.map(e=>({...e,ms1:Number(e.ms1)||0,ms2:Number(e.ms2)||0}));
+  entries=data.map(e=>({...e,ms1:Number(e.ms1)||0,ms2:Number(e.ms2)||0,ms3:Number(e.ms3)||0}));
+  if(entries.some(e=>e.ms3>0)&&phase===1) phase=3;
 }
-
 async function postEntry(entry){
   await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)});
 }
-
 async function pollEntries(){
   try{
     await fetchEntries();
     const modal=document.getElementById('admin-modal');
-    const modalOpen=modal&&modal.style.display==='flex';
-    if(currentView==='dashboard'&&!modalOpen)renderApp();
+    if(currentView==='dashboard'&&!(modal&&modal.style.display==='flex')) renderApp();
   }catch(e){console.warn('Poll failed',e)}
+}
+
+// ── Stopwatch ────────────────────────────────────────────
+function swReset(){
+  clearInterval(swTick); swTick=null;
+  swRunning=false; swStart=0; swLap1=0; swLap2=0; swLap3=0; swLapsDone=0;
+}
+
+function swStartTimer(){
+  swRunning=true;
+  swStart=Date.now();
+  swTick=setInterval(()=>{
+    const el=document.getElementById('sw-display');
+    if(el) el.textContent=fmtLive(Date.now()-swStart+(swLapsDone===1?swLap1:0));
+    // For phase 3 just show elapsed
+    if(phase===3){
+      if(el) el.textContent=fmtLive(Date.now()-swStart);
+    }
+  },30);
+}
+
+function handleLapBtn(){
+  if(phase===3){
+    handleLap3Btn(); return;
+  }
+  if(swLapsDone===0){
+    // Start timer
+    swStart=Date.now();
+    swRunning=true;
+    swLapsDone=0;
+    swTick=setInterval(updateDisplay,30);
+    updateLapBtn();
+  } else if(swLapsDone===1 && swRunning){
+    // Record lap 2 — stop timer
+    swLap2=Date.now()-swStart;
+    clearInterval(swTick); swRunning=false; swLapsDone=2;
+    updateDisplay(); updateLapBtn();
+  } else if(swRunning){
+    // Record lap 1 — keep running
+    swLap1=Date.now()-swStart;
+    swLapsDone=1;
+    // Reset start for lap 2
+    swStart=Date.now();
+    updateLapBtn();
+  }
+}
+
+function handleLap3Btn(){
+  if(!swRunning&&swLap3===0){
+    // Start
+    swStart=Date.now(); swRunning=true;
+    swTick=setInterval(updateDisplay,30);
+    updateLapBtn();
+  } else if(swRunning){
+    // Stop — record lap 3
+    swLap3=Date.now()-swStart;
+    clearInterval(swTick); swRunning=false;
+    updateDisplay(); updateLapBtn();
+  }
+}
+
+function updateDisplay(){
+  const el=document.getElementById('sw-display');
+  if(!el) return;
+  if(phase===3){
+    el.textContent=swRunning?fmtLive(Date.now()-swStart):swLap3?fmtLive(swLap3):'0.00';
+    return;
+  }
+  if(!swRunning&&swLapsDone===0){el.textContent='0.00';return;}
+  if(swLapsDone===2){
+    el.textContent=fmtLive(swLap1+swLap2);return;
+  }
+  const elapsed=Date.now()-swStart;
+  if(swLapsDone===1) el.textContent=fmtLive(swLap1+elapsed);
+  else el.textContent=fmtLive(elapsed);
+}
+
+function updateLapBtn(){
+  const btn=document.getElementById('lap-btn');
+  const sub=document.getElementById('submit-btn');
+  const l1el=document.getElementById('lap1-display');
+  const l2el=document.getElementById('lap2-display');
+  const l3el=document.getElementById('lap3-display');
+  if(!btn) return;
+
+  if(phase===3){
+    if(!swRunning&&swLap3===0){
+      btn.textContent='Start'; btn.style.background='#16a34a';
+    } else if(swRunning){
+      btn.textContent='Stop — Record Lap 3'; btn.style.background='#cc0000';
+    } else {
+      btn.textContent='Retake'; btn.style.background='#555';
+      if(sub) sub.style.display='block';
+    }
+    if(l3el) l3el.textContent=swLap3?fmt(swLap3):'—';
+    return;
+  }
+
+  if(swLapsDone===0){
+    btn.textContent='Start'; btn.style.background='#16a34a';
+  } else if(swLapsDone===1 && swRunning){
+    btn.textContent='Lap 2 — Stop'; btn.style.background='#cc0000';
+    if(l1el) l1el.textContent=fmt(swLap1);
+  } else if(swLapsDone===2){
+    btn.textContent='Retake'; btn.style.background='#555';
+    if(l1el) l1el.textContent=fmt(swLap1);
+    if(l2el) l2el.textContent=fmt(swLap2);
+    if(sub) sub.style.display='block';
+  } else if(swRunning){
+    btn.textContent='Lap 1 — Keep Going'; btn.style.background='#d97706';
+  }
 }
 
 async function doSubmit(){
   const n=(document.getElementById('inp-name')?.value||'').trim();
-  const t1=(document.getElementById('inp-lap1')?.value||'').trim();
-  const t2=(document.getElementById('inp-lap2')?.value||'').trim();
   const err=document.getElementById('err');
   err.style.display='none';
-  if(!n){err.style.display='block';err.textContent='Enter your name';return}
-  const ms1=parseTime(t1);
-  if(!ms1||ms1<=0){err.style.display='block';err.textContent='Enter a valid Lap 1 time — e.g. 79.43';return}
-  const ms2=parseTime(t2);
-  if(!ms2||ms2<=0){err.style.display='block';err.textContent='Enter a valid Lap 2 time — e.g. 79.43';return}
-  const btn=document.getElementById('submit-btn');
-  if(btn){btn.textContent='Saving...';btn.disabled=true;}
-  try{
-    const entry={id:Date.now(),name:n,ms1,ms2,ts:Date.now()};
-    const idx=entries.findIndex(e=>e.name.toLowerCase()===n.toLowerCase());
-    if(idx>=0)entries[idx]=entry;else entries.push(entry);
-    await postEntry(entry);
-    await new Promise(r=>setTimeout(r,1200));
-    await fetchEntries();
-    submittedName=n;
-    renderApp();
-  }catch(e){
-    if(btn){btn.textContent='Set Times';btn.disabled=false;}
-    err.style.display='block';err.textContent='Sync failed — check connection';
+  if(!n){err.style.display='block';err.textContent='Enter your name first';return}
+  if(phase===1){
+    if(swLapsDone<2){err.style.display='block';err.textContent='Complete both laps first';return}
+    const btn=document.getElementById('submit-btn');
+    if(btn){btn.textContent='Saving...';btn.disabled=true;}
+    try{
+      const existing=entries.find(e=>e.name.toLowerCase()===n.toLowerCase());
+      const entry={id:existing?existing.id:Date.now(),name:n,ms1:swLap1,ms2:swLap2,ms3:existing?existing.ms3:0,ts:Date.now()};
+      const idx=entries.findIndex(e=>e.name.toLowerCase()===n.toLowerCase());
+      if(idx>=0)entries[idx]=entry;else entries.push(entry);
+      await postEntry(entry);
+      await new Promise(r=>setTimeout(r,1200));
+      await fetchEntries();
+      submittedName=n; swReset(); renderApp();
+    }catch(e){
+      const btn=document.getElementById('submit-btn');
+      if(btn){btn.textContent='Submit';btn.disabled=false;}
+      err.style.display='block';err.textContent='Sync failed — check connection';
+    }
+  } else {
+    if(!swLap3){err.style.display='block';err.textContent='Record your Lap 3 time first';return}
+    const existing=entries.find(e=>e.name.toLowerCase()===n.toLowerCase());
+    if(!existing){err.style.display='block';err.textContent='Name not found — must match your Lap 1 & 2 entry';return}
+    const btn=document.getElementById('submit-btn');
+    if(btn){btn.textContent='Saving...';btn.disabled=true;}
+    try{
+      const entry={...existing,ms3:swLap3,ts:Date.now()};
+      const idx=entries.findIndex(e=>e.name.toLowerCase()===n.toLowerCase());
+      if(idx>=0)entries[idx]=entry;
+      await postEntry(entry);
+      await new Promise(r=>setTimeout(r,1200));
+      await fetchEntries();
+      submittedName=n; swReset(); renderApp();
+    }catch(e){
+      const btn=document.getElementById('submit-btn');
+      if(btn){btn.textContent='Submit';btn.disabled=false;}
+      err.style.display='block';err.textContent='Sync failed — check connection';
+    }
   }
+}
+
+function tryUnlockLap3(){
+  const code=(document.getElementById('unlock-code')?.value||'').trim().toUpperCase();
+  const err=document.getElementById('unlock-err');
+  if(code===LAP3_CODE){phase=3;swReset();submittedName='';renderApp();}
+  else{if(err)err.style.display='block';}
 }
 
 async function doReset(){
@@ -99,86 +252,150 @@ async function doReset(){
     await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({reset:true})});
     await new Promise(r=>setTimeout(r,1200));
     await fetchEntries();
-    hideAdminModal();
-    renderApp();
+    phase=1; swReset(); submittedName='';
+    hideAdminModal(); renderApp();
   }else{
     const e=document.getElementById('pin-err');
     if(e)e.style.display='block';
   }
 }
-
 function showAdminModal(){
   const m=document.getElementById('admin-modal');
   if(m){m.style.display='flex';document.getElementById('pin-inp').value='';document.getElementById('pin-err').style.display='none';}
 }
-function hideAdminModal(){
-  const m=document.getElementById('admin-modal');
-  if(m)m.style.display='none';
-}
+function hideAdminModal(){document.getElementById('admin-modal').style.display='none';}
 
 function renderApp(){
   document.getElementById('app').innerHTML=currentView==='dashboard'?renderDashboard():renderEntry();
   if(currentView==='dashboard'){
     const qrEl=document.getElementById('qr-box');
     if(qrEl) new QRCode(qrEl,{text:location.href.split('?')[0],width:100,height:100,colorDark:'#ffffff',colorLight:'#1a1a1a'});
+  } else {
+    // Restore live timer if running
+    if(swRunning){
+      clearInterval(swTick);
+      swTick=setInterval(updateDisplay,30);
+    }
+    updateDisplay();
+    updateLapBtn();
   }
 }
 
 function renderEntry(){
-  const board=sorted().slice(0,5);
-  const rows=board.map((e,i)=>{
-    const total=e.ms1+e.ms2;
+  const isFinal=phase===3;
+  const names12=entries.filter(e=>e.ms1&&e.ms2).map(e=>e.name);
+  const board=isFinal?sortedFinal():sorted12();
+
+  const miniRows=board.slice(0,5).map((e,i)=>{
+    if(isFinal){
+      const gap=e.ms3-(e.ms1+e.ms2);
+      return`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
+        <span style="width:20px;font-size:13px;font-weight:900;color:${i<3?MEDALS[i]:'rgba(255,255,255,0.28)'};text-align:center">${i===0?'⭐':i+1}</span>
+        <span style="flex:1;font-size:13px;opacity:.8;text-transform:uppercase;letter-spacing:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.name)}</span>
+        <span style="font-family:'Courier New',monospace;font-size:13px;font-weight:900;color:${gap<0?'#4ade80':gap===0?'#e8b400':'#f87171'}">${fmtGap(gap)}</span>
+      </div>`;
+    }
     return`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06)">
       <span style="width:20px;font-size:13px;font-weight:900;color:${i<3?MEDALS[i]:'rgba(255,255,255,0.28)'};text-align:center">${i===0?'⭐':i+1}</span>
       <span style="flex:1;font-size:13px;opacity:.8;text-transform:uppercase;letter-spacing:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.name)}</span>
-      <span style="font-family:'Courier New',monospace;font-size:11px;color:rgba(255,255,255,0.4);letter-spacing:1px">${fmt(e.ms1)}+${fmt(e.ms2)}</span>
-      <span style="font-family:'Courier New',monospace;font-size:14px;font-weight:900;color:${i===0?'#e8b400':'rgba(255,255,255,0.7)'};letter-spacing:1px;min-width:52px;text-align:right">${fmt(total)}</span>
+      <span style="font-family:'Courier New',monospace;font-size:14px;font-weight:900;color:${i===0?'#e8b400':'rgba(255,255,255,0.7)'}">${fmt(e.ms1+e.ms2)}</span>
     </div>`;
   }).join('');
 
+  // Post-submit confirmation
+  if(submittedName){
+    const e=entries.find(x=>x.name.toLowerCase()===submittedName.toLowerCase());
+    const gap=e&&isFinal?e.ms3-(e.ms1+e.ms2):null;
+    return`<div style="min-height:100vh;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px">
+    <div style="width:100%;max-width:400px">
+      <div style="background:rgba(232,180,0,0.08);border:1px solid rgba(232,180,0,0.35);border-radius:8px;padding:32px 24px;text-align:center">
+        <div style="font-size:40px">⭐</div>
+        <div style="font-size:20px;font-weight:900;margin-top:10px;letter-spacing:1px;text-transform:uppercase">${isFinal?'Lap 3 Recorded!':'Times Recorded!'}</div>
+        ${gap!==null?`
+        <div style="font-size:36px;font-weight:900;margin-top:14px;font-family:'Courier New',monospace;color:${gap<0?'#4ade80':gap===0?'#e8b400':'#f87171'};letter-spacing:2px">${fmtGap(gap)}</div>
+        <div style="font-size:12px;opacity:.45;margin-top:4px;letter-spacing:1px">${gap<0?'Beat your combined time!':gap===0?'Exactly matched!':'Over your combined time'}</div>`
+        :e?`<div style="font-family:'Courier New',monospace;font-size:28px;font-weight:900;color:#e8b400;margin-top:14px">${fmt(e.ms1+e.ms2)}</div><div style="font-size:11px;opacity:.4;margin-top:4px;letter-spacing:2px">L1 ${fmt(e.ms1)} &nbsp; L2 ${fmt(e.ms2)}</div>`:''}
+        <div style="font-size:13px;opacity:.45;margin-top:14px;letter-spacing:1px">Check the big screen</div>
+        <button onclick="submittedName='';renderApp()" style="margin-top:20px;background:#cc0000;border:none;color:#fff;padding:12px 28px;font-size:14px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:2px;text-transform:uppercase">Submit Again</button>
+      </div>
+      ${board.length>0?`<div style="margin-top:24px"><div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.28;text-align:center;margin-bottom:12px">Current standings</div>${miniRows}</div>`:''}
+      <button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:20px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">Open Dashboard →</button>
+    </div></div>`;
+  }
+
   return`<div style="min-height:100vh;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px">
   <div style="width:100%;max-width:400px">
-    <div style="text-align:center;margin-bottom:24px">
-      <div style="display:inline-flex;align-items:center;justify-content:center;width:64px;height:64px;background:#cc0000;border-radius:6px;margin-bottom:12px">
-        <span style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-1px">TEE</span>
+
+    <!-- Header -->
+    <div style="text-align:center;margin-bottom:20px">
+      <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:#cc0000;border-radius:6px;margin-bottom:10px">
+        <span style="font-size:18px;font-weight:900;color:#fff">TEE</span>
       </div>
-      <div style="font-size:22px;font-weight:900;letter-spacing:3px;text-transform:uppercase">Multi-tasking</div>
-      <div style="font-size:11px;letter-spacing:4px;opacity:.45;text-transform:uppercase;margin-top:4px">Submit your times</div>
+      <div style="font-size:20px;font-weight:900;letter-spacing:3px;text-transform:uppercase">Multi-tasking</div>
+      <div style="font-size:11px;letter-spacing:4px;opacity:.45;text-transform:uppercase;margin-top:3px">${isFinal?'Lap 3':'Laps 1 & 2'}</div>
     </div>
 
-    ${submittedName?`
-    <div style="background:rgba(232,180,0,0.08);border:1px solid rgba(232,180,0,0.35);border-radius:8px;padding:32px 24px;text-align:center">
-      <div style="font-size:40px">⭐</div>
-      <div style="font-size:20px;font-weight:900;margin-top:10px;letter-spacing:1px;text-transform:uppercase">Times Set!</div>
-      <div style="font-size:13px;opacity:.45;margin-top:6px;letter-spacing:1px">Check the big screen</div>
-      <button onclick="submittedName='';renderApp()" style="margin-top:24px;background:#cc0000;border:none;color:#fff;padding:12px 28px;font-size:14px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:2px;text-transform:uppercase">Submit Again</button>
-    </div>`:`
-    <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:24px">
-      <div style="margin-bottom:16px">
-        <label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px">Your Name</label>
-        <input id="inp-name" placeholder="e.g. The Stig" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:18px;border-radius:4px;font-family:inherit"/>
-      </div>
-      <div style="display:flex;gap:12px;margin-bottom:16px">
-        <div style="flex:1">
-          <label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px">Lap 1</label>
-          <input id="inp-lap1" placeholder="e.g. 79.43" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 12px;font-size:20px;border-radius:4px;font-family:'Courier New',monospace;letter-spacing:1px"/>
-        </div>
-        <div style="flex:1">
-          <label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px">Lap 2</label>
-          <input id="inp-lap2" placeholder="e.g. 79.43" onkeydown="if(event.key==='Enter')doSubmit()" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 12px;font-size:20px;border-radius:4px;font-family:'Courier New',monospace;letter-spacing:1px"/>
-        </div>
-      </div>
-      <div style="font-size:10px;opacity:.28;margin-bottom:16px;letter-spacing:1px;text-align:center">Format: ss.cs &nbsp;—&nbsp; ranked by combined total</div>
-      <div id="err" style="color:#f87171;font-size:13px;margin-bottom:14px;text-align:center;letter-spacing:1px;display:none"></div>
-      <button id="submit-btn" onclick="doSubmit()" style="width:100%;background:#cc0000;border:none;color:#fff;padding:16px;font-size:16px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:3px;text-transform:uppercase">Set Times</button>
-    </div>`}
+    <!-- Name input -->
+    <div style="margin-bottom:16px">
+      <label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px">Your Name ${isFinal?'(must match Lap 1 & 2)':''}</label>
+      ${isFinal?`
+      <select id="inp-name" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:16px;border-radius:4px;font-family:inherit;appearance:none">
+        <option value="">— Select your name —</option>
+        ${names12.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
+      </select>`:`
+      <input id="inp-name" placeholder="e.g. The Stig" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:18px;border-radius:4px;font-family:inherit"/>`}
+    </div>
 
-    ${board.length>0?`<div style="margin-top:24px">
-      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.28;text-align:center;margin-bottom:12px">Current standings</div>
-      ${rows}
+    <!-- Stopwatch display -->
+    <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 16px;margin-bottom:16px;text-align:center">
+      <div id="sw-display" style="font-family:'Courier New',monospace;font-size:52px;font-weight:900;letter-spacing:2px;color:#fff;line-height:1">0.00</div>
+      ${!isFinal?`
+      <div style="display:flex;justify-content:center;gap:24px;margin-top:12px">
+        <div style="text-align:center">
+          <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.4;margin-bottom:4px">Lap 1</div>
+          <div id="lap1-display" style="font-family:'Courier New',monospace;font-size:18px;font-weight:900;color:rgba(255,255,255,0.6)">—</div>
+        </div>
+        <div style="width:1px;background:rgba(255,255,255,0.1)"></div>
+        <div style="text-align:center">
+          <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.4;margin-bottom:4px">Lap 2</div>
+          <div id="lap2-display" style="font-family:'Courier New',monospace;font-size:18px;font-weight:900;color:rgba(255,255,255,0.6)">—</div>
+        </div>
+      </div>`:`
+      <div style="text-align:center;margin-top:10px">
+        <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.4;margin-bottom:4px">Lap 3</div>
+        <div id="lap3-display" style="font-family:'Courier New',monospace;font-size:18px;font-weight:900;color:rgba(255,255,255,0.6)">—</div>
+      </div>`}
+    </div>
+
+    <!-- Lap button -->
+    <button id="lap-btn" class="lap-btn" onclick="handleLapBtn()" style="background:#16a34a;margin-bottom:10px">
+      ${isFinal?'Start':'Start'}
+    </button>
+
+    <!-- Submit button (hidden until laps done) -->
+    <button id="submit-btn" onclick="doSubmit()" style="display:none;width:100%;background:#cc0000;border:none;color:#fff;padding:16px;font-size:16px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px">
+      Submit
+    </button>
+
+    <div id="err" style="color:#f87171;font-size:13px;margin-bottom:10px;text-align:center;letter-spacing:1px;display:none"></div>
+
+    ${!isFinal?`
+    <!-- Unlock Lap 3 -->
+    <div style="margin-top:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:14px">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.3;margin-bottom:10px;text-align:center">Unlock Lap 3</div>
+      <div style="display:flex;gap:8px">
+        <input id="unlock-code" placeholder="Enter code" onkeydown="if(event.key==='Enter')tryUnlockLap3()" style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:10px 14px;font-size:14px;border-radius:4px;font-family:monospace;letter-spacing:2px"/>
+        <button onclick="tryUnlockLap3()" style="background:#444;border:none;color:#fff;padding:10px 16px;border-radius:4px;font-family:inherit;font-size:12px;letter-spacing:1px;text-transform:uppercase">Unlock</button>
+      </div>
+      <div id="unlock-err" style="display:none;color:#f87171;font-size:11px;margin-top:8px;text-align:center;letter-spacing:1px">Wrong code</div>
     </div>`:''}
 
-    <button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:20px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">
+    ${board.length>0?`<div style="margin-top:20px">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.28;text-align:center;margin-bottom:10px">Current standings</div>
+      ${miniRows}
+    </div>`:''}
+
+    <button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">
       Open Dashboard View →
     </button>
   </div>
@@ -186,31 +403,46 @@ function renderEntry(){
 }
 
 function renderDashboard(){
-  const board=sorted();
-  const complete=board.filter(e=>e.ms1&&e.ms2);
-  const rows=complete.length===0
+  const isFinal=phase===3&&entries.some(e=>e.ms3>0);
+  const board=isFinal?sortedFinal():sorted12();
+  const rows=board.length===0
     ?`<div style="text-align:center;padding:80px 0;opacity:.22;font-size:20px;letter-spacing:4px;text-transform:uppercase">No times set yet</div>`
-    :complete.map((e,i)=>{
+    :board.map((e,i)=>{
       const isFirst=i===0;
-      const total=e.ms1+e.ms2;
-      const gap=i>0?(e.ms1+e.ms2)-(complete[0].ms1+complete[0].ms2):null;
+      const combined=e.ms1+e.ms2;
+      if(isFinal){
+        const gap=e.ms3-combined;
+        return`<div class="row" style="display:flex;align-items:center;gap:12px;background:${isFirst?'linear-gradient(90deg,rgba(232,180,0,0.14),rgba(232,180,0,0.03))':'rgba(255,255,255,0.04)'};border:1px solid ${isFirst?'rgba(232,180,0,0.45)':'rgba(255,255,255,0.07)'};border-radius:6px;padding:12px 16px;margin-bottom:10px">
+          <div style="width:44px;text-align:center;flex-shrink:0">
+            <div style="font-size:${isFirst?22:15}px;font-weight:900;color:${i<3?MEDALS[i]:'rgba(255,255,255,0.3)'}">${isFirst?'⭐':i+1}</div>
+            ${isFirst?`<div style="font-size:9px;color:#e8b400;letter-spacing:2px;margin-top:2px;text-transform:uppercase">Closest</div>`:''}
+          </div>
+          <div style="flex:1;font-size:${isFirst?20:16}px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:${isFirst?'#fff':'rgba(255,255,255,0.82)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.name)}</div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+            <div style="display:flex;gap:10px;align-items:center">
+              <span style="font-size:10px;opacity:.4;letter-spacing:1px">L1+L2</span>
+              <span style="font-family:'Courier New',monospace;font-size:13px;color:rgba(255,255,255,0.5)">${fmt(combined)}</span>
+              <span style="font-size:10px;opacity:.4;letter-spacing:1px">L3</span>
+              <span style="font-family:'Courier New',monospace;font-size:13px;color:rgba(255,255,255,0.5)">${fmt(e.ms3)}</span>
+            </div>
+            <div style="font-family:'Courier New',monospace;font-size:${isFirst?30:22}px;font-weight:900;color:${gap<0?'#4ade80':gap===0?'#e8b400':'#f87171'};letter-spacing:2px">${fmtGap(gap)}</div>
+          </div>
+        </div>`;
+      }
       return`<div class="row" style="display:flex;align-items:center;gap:12px;background:${isFirst?'linear-gradient(90deg,rgba(232,180,0,0.14),rgba(232,180,0,0.03))':'rgba(255,255,255,0.04)'};border:1px solid ${isFirst?'rgba(232,180,0,0.45)':'rgba(255,255,255,0.07)'};border-radius:6px;padding:12px 16px;margin-bottom:10px">
         <div style="width:44px;text-align:center;flex-shrink:0">
-          <div style="font-size:${isFirst?22:15}px;font-weight:900;color:${i<3?MEDALS[i]:'rgba(255,255,255,0.3)'};line-height:1">${isFirst?'⭐':i+1}</div>
+          <div style="font-size:${isFirst?22:15}px;font-weight:900;color:${i<3?MEDALS[i]:'rgba(255,255,255,0.3)'}">${isFirst?'⭐':i+1}</div>
           ${isFirst?`<div style="font-size:9px;color:#e8b400;letter-spacing:2px;margin-top:2px;text-transform:uppercase">Fastest</div>`:''}
         </div>
         <div style="flex:1;font-size:${isFirst?20:16}px;font-weight:900;text-transform:uppercase;letter-spacing:1px;color:${isFirst?'#fff':'rgba(255,255,255,0.82)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(e.name)}</div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:3px;min-width:200px">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
           <div style="display:flex;gap:8px;align-items:center">
-            <span style="font-size:11px;opacity:.4;letter-spacing:1px">L1</span>
-            <span style="font-family:'Courier New',monospace;font-size:14px;color:rgba(255,255,255,0.6);letter-spacing:1px">${fmt(e.ms1)}</span>
-            <span style="font-size:11px;opacity:.4;letter-spacing:1px">L2</span>
-            <span style="font-family:'Courier New',monospace;font-size:14px;color:rgba(255,255,255,0.6);letter-spacing:1px">${fmt(e.ms2)}</span>
+            <span style="font-size:10px;opacity:.4;letter-spacing:1px">L1</span>
+            <span style="font-family:'Courier New',monospace;font-size:13px;color:rgba(255,255,255,0.5)">${fmt(e.ms1)}</span>
+            <span style="font-size:10px;opacity:.4;letter-spacing:1px">L2</span>
+            <span style="font-family:'Courier New',monospace;font-size:13px;color:rgba(255,255,255,0.5)">${fmt(e.ms2)}</span>
           </div>
-          <div style="display:flex;align-items:center;gap:10px">
-            ${gap!==null?`<span style="font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:1px">+${fmt(gap)}</span>`:''}
-            <span style="font-family:'Courier New',monospace;font-size:${isFirst?28:20}px;font-weight:900;color:${isFirst?'#e8b400':i<3?MEDALS[i]:'rgba(255,255,255,0.85)'};letter-spacing:2px">${fmt(total)}</span>
-          </div>
+          <span style="font-family:'Courier New',monospace;font-size:${isFirst?30:22}px;font-weight:900;color:${isFirst?'#e8b400':i<3?MEDALS[i]:'rgba(255,255,255,0.85)'};letter-spacing:2px">${fmt(combined)}</span>
         </div>
       </div>`;
     }).join('');
@@ -223,15 +455,14 @@ function renderDashboard(){
       </div>
       <div>
         <div style="font-size:26px;font-weight:900;letter-spacing:3px;text-transform:uppercase;line-height:1">Multi-tasking</div>
-        <div style="font-size:11px;letter-spacing:4px;opacity:.7;text-transform:uppercase;margin-top:3px">Leaderboard</div>
+        <div style="font-size:11px;letter-spacing:4px;opacity:.7;text-transform:uppercase;margin-top:3px">${isFinal?'Final Results — Lap 3':'Leaderboard — Laps 1 & 2'}</div>
       </div>
     </div>
-    <div style="display:flex;gap:10px;align-items:center">
+    <div style="display:flex;gap:10px">
       <button onclick="currentView='entry';renderApp()" style="background:transparent;border:2px solid rgba(255,255,255,0.4);color:#fff;padding:8px 16px;font-size:12px;letter-spacing:1px;border-radius:3px;font-family:inherit;text-transform:uppercase">Entry Mode</button>
       <button onclick="showAdminModal()" style="background:transparent;border:2px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.4);padding:8px 12px;font-size:12px;border-radius:3px;font-family:inherit">Reset</button>
     </div>
   </div>
-
   <div style="display:flex;gap:24px;padding:24px 28px;max-width:1200px;margin:0 auto">
     <div style="flex:1">${rows}</div>
     <div style="width:160px;flex-shrink:0;padding-top:8px">
@@ -240,12 +471,11 @@ function renderDashboard(){
         <div id="qr-box" style="background:#1a1a1a;display:inline-block"></div>
         <div style="font-size:9px;opacity:.25;margin-top:10px;letter-spacing:1px;word-break:break-all">${esc(location.href.split('?')[0])}</div>
       </div>
-      <div style="margin-top:12px;text-align:center;display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;letter-spacing:2px;text-transform:uppercase;opacity:.35">
+      <div style="margin-top:12px;display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;letter-spacing:2px;text-transform:uppercase;opacity:.35">
         <div style="width:6px;height:6px;border-radius:50%;background:#4ade80;animation:blink 2s infinite"></div>LIVE
       </div>
     </div>
   </div>
-
   <div id="admin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);align-items:center;justify-content:center;z-index:99">
     <div style="background:#1c1c1c;border:1px solid rgba(255,255,255,0.13);border-radius:8px;padding:32px;width:300px;text-align:center">
       <div style="font-size:17px;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">Admin Reset</div>
