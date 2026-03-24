@@ -10,17 +10,10 @@
 body{font-family:'Arial Black',Arial,sans-serif;background:#0a0a0a;color:#fff;min-height:100vh}
 input,button,select{font-family:'Arial Black',Arial,sans-serif;outline:none}
 button{cursor:pointer}
-select{cursor:pointer}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
 @keyframes fadeIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
-@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(0.96)}}
 .row{animation:fadeIn .3s ease}
-.lap-btn{
-  width:100%;padding:28px 0;font-size:22px;font-weight:900;letter-spacing:3px;
-  text-transform:uppercase;border:none;border-radius:12px;color:#fff;
-  transition:background .2s,transform .1s;touch-action:manipulation;
-  -webkit-tap-highlight-color:transparent;
-}
+.lap-btn{width:100%;padding:28px 0;font-size:22px;font-weight:900;letter-spacing:3px;text-transform:uppercase;border:none;border-radius:12px;color:#fff;transition:background .2s,transform .1s;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
 .lap-btn:active{transform:scale(0.97)}
 </style>
 </head>
@@ -29,39 +22,33 @@ select{cursor:pointer}
 <script>
 const API='https://script.google.com/macros/s/AKfycbyY0_NEbZF6EXccgI5ri4StsSfbPL7fWURbKF4HphzLKvCjxWhBXoD2wXrlqTtj2Q0/exec';
 const ADMIN_PIN='1234';
-const LAP3_CODE='LAP3';
 const MEDALS=['#E8B400','#9CA3AF','#CD7F32'];
 
 let entries=[];
-let currentView='entry'; // entry | dashboard
-let phase=1; // 1=laps1&2  3=lap3
+let currentView='entry';
+let phase=1; // 1=laps1&2  3=lap3 — driven by server
 let submittedName='';
+let adminModalMode='reset'; // 'reset' | 'unlaplap3'
 
-// Stopwatch state
-let swRunning=false;
-let swStart=0;      // Date.now() when started
-let swLap1=0;       // ms for lap1
-let swLap2=0;       // ms for lap2
-let swLap3=0;
-let swLapsDone=0;   // 0=not started, 1=lap1 done, 2=both done
-let swTick=null;
+// Stopwatch
+let swRunning=false, swStart=0, swLap1=0, swLap2=0, swLap3=0, swLapsDone=0, swTick=null;
 
 function fmt(ms){
   if(!ms&&ms!==0)return'—';
-  const neg=ms<0; const abs=Math.abs(ms);
+  const neg=ms<0,abs=Math.abs(ms);
   const m=Math.floor(abs/60000),s=Math.floor(abs%60000/1000),cs=Math.floor(abs%1000/10);
   const t=m>0?`${m}:${String(s).padStart(2,'0')}.${String(cs).padStart(2,'0')}`:`${s}.${String(cs).padStart(2,'0')}`;
   return neg?'-'+t:t;
 }
+function fmtGap(ms){return(ms<=0?'':'+')+(fmt(ms))}
 function fmtLive(ms){
-  const m=Math.floor(ms/60000),s=Math.floor(ms%60000/1000),cs=Math.floor(ms%1000/10);
+  const abs=Math.abs(ms),m=Math.floor(abs/60000),s=Math.floor(abs%60000/1000),cs=Math.floor(abs%1000/10);
   return`${m>0?m+':':''}${m>0?String(s).padStart(2,'0'):s}.${String(cs).padStart(2,'0')}`;
 }
-function fmtGap(ms){return(ms<=0?'':'+')+(fmt(ms))}
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-function sorted12(){return [...entries].filter(e=>e.ms1&&e.ms2).sort((a,b)=>(a.ms1+a.ms2)-(b.ms1+b.ms2))}
+function sorted12(){return[...entries].filter(e=>e.ms1&&e.ms2).sort((a,b)=>(a.ms1+a.ms2)-(b.ms1+b.ms2))}
 function sortedFinal(){
-  return [...entries].filter(e=>e.ms1&&e.ms2&&e.ms3)
+  return[...entries].filter(e=>e.ms1&&e.ms2&&e.ms3)
     .map(e=>({...e,gap:e.ms3-(e.ms1+e.ms2)}))
     .sort((a,b)=>Math.abs(a.gap)-Math.abs(b.gap));
 }
@@ -69,98 +56,47 @@ function sortedFinal(){
 async function fetchEntries(){
   const res=await fetch(API+'?t='+Date.now());
   const data=await res.json();
-  entries=data.map(e=>({...e,ms1:Number(e.ms1)||0,ms2:Number(e.ms2)||0,ms3:Number(e.ms3)||0}));
+  // Separate phase record from entry records
+  const phaseRec=data.find(e=>e.id==='__phase__');
+  const newPhase=phaseRec?Number(phaseRec.ms1):1;
+  // If phase changed from 1->3, reset stopwatch
+  if(newPhase===3&&phase===1){swReset();}
+  phase=newPhase;
+  entries=data.filter(e=>e.id!=='__phase__').map(e=>({...e,ms1:Number(e.ms1)||0,ms2:Number(e.ms2)||0,ms3:Number(e.ms3)||0}));
 }
+
 async function postEntry(entry){
   await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)});
 }
+
 async function pollEntries(){
   try{
+    const prevPhase=phase;
     await fetchEntries();
     const modal=document.getElementById('admin-modal');
-    if(currentView==='dashboard'&&!(modal&&modal.style.display==='flex')) renderApp();
+    const modalOpen=modal&&modal.style.display==='flex';
+    // If phase flipped on poll, re-render entry screen too
+    if(phase!==prevPhase&&currentView==='entry'){submittedName='';renderApp();return;}
+    if(currentView==='dashboard'&&!modalOpen)renderApp();
   }catch(e){console.warn('Poll failed',e)}
 }
 
-// ── Stopwatch ────────────────────────────────────────────
+// Stopwatch
 function swReset(){
-  clearInterval(swTick); swTick=null;
-  swRunning=false; swStart=0; swLap1=0; swLap2=0; swLap3=0; swLapsDone=0;
-}
-
-function swStartTimer(){
-  swRunning=true;
-  swStart=Date.now();
-  swTick=setInterval(()=>{
-    const el=document.getElementById('sw-display');
-    if(el) el.textContent=fmtLive(Date.now()-swStart+(swLapsDone===1?swLap1:0));
-    // For phase 3 just show elapsed
-    if(phase===3){
-      if(el) el.textContent=fmtLive(Date.now()-swStart);
-    }
-  },30);
-}
-
-function handleLapBtn(){
-  if(phase===3){ handleLap3Btn(); return; }
-  if(swLapsDone===0 && !swRunning){
-    // First tap — start timer
-    swStart=Date.now();
-    swRunning=true;
-    swLapsDone=0;
-    clearInterval(swTick);
-    swTick=setInterval(updateDisplay,30);
-    // Update button label immediately
-    const btn=document.getElementById('lap-btn');
-    if(btn){btn.textContent='Lap 1 — Keep Going';btn.style.background='#d97706';}
-  } else if(swRunning && swLapsDone===0){
-    // Second tap — record lap 1, keep running
-    swLap1=Date.now()-swStart;
-    swLapsDone=1;
-    swStart=Date.now(); // reset for lap 2
-    updateDisplay(); updateLapBtn();
-  } else if(swRunning && swLapsDone===1){
-    // Third tap — record lap 2, stop
-    swLap2=Date.now()-swStart;
-    clearInterval(swTick); swTick=null;
-    swRunning=false; swLapsDone=2;
-    updateDisplay(); updateLapBtn();
-  } else if(swLapsDone===2){
-    // Retake — reset everything
-    swReset(); updateDisplay(); updateLapBtn();
-    const sub=document.getElementById('submit-btn');
-    if(sub) sub.style.display='none';
-  }
-}
-
-function handleLap3Btn(){
-  if(!swRunning&&swLap3===0){
-    // Start
-    swStart=Date.now(); swRunning=true;
-    swTick=setInterval(updateDisplay,30);
-    updateLapBtn();
-  } else if(swRunning){
-    // Stop — record lap 3
-    swLap3=Date.now()-swStart;
-    clearInterval(swTick); swRunning=false;
-    updateDisplay(); updateLapBtn();
-  }
+  clearInterval(swTick);swTick=null;
+  swRunning=false;swStart=0;swLap1=0;swLap2=0;swLap3=0;swLapsDone=0;
 }
 
 function updateDisplay(){
   const el=document.getElementById('sw-display');
-  if(!el) return;
+  if(!el)return;
   if(phase===3){
-    el.textContent=swRunning?fmtLive(Date.now()-swStart):swLap3?fmtLive(swLap3):'0.00';
-    return;
+    el.textContent=swRunning?fmtLive(Date.now()-swStart):swLap3?fmtLive(swLap3):'0.00';return;
   }
   if(!swRunning&&swLapsDone===0){el.textContent='0.00';return;}
-  if(swLapsDone===2){
-    el.textContent=fmtLive(swLap1+swLap2);return;
-  }
+  if(swLapsDone===2){el.textContent=fmtLive(swLap1+swLap2);return;}
   const elapsed=Date.now()-swStart;
-  if(swLapsDone===1) el.textContent=fmtLive(swLap1+elapsed);
-  else el.textContent=fmtLive(elapsed);
+  el.textContent=fmtLive(swLapsDone===1?swLap1+elapsed:elapsed);
 }
 
 function updateLapBtn(){
@@ -169,120 +105,131 @@ function updateLapBtn(){
   const l1el=document.getElementById('lap1-display');
   const l2el=document.getElementById('lap2-display');
   const l3el=document.getElementById('lap3-display');
-  if(!btn) return;
-
+  if(!btn)return;
   if(phase===3){
-    if(!swRunning&&swLap3===0){
-      btn.textContent='Start'; btn.style.background='#16a34a';
-    } else if(swRunning){
-      btn.textContent='Stop — Record Lap 3'; btn.style.background='#cc0000';
-    } else {
-      btn.textContent='Retake'; btn.style.background='#555';
-      if(sub) sub.style.display='block';
-    }
-    if(l3el) l3el.textContent=swLap3?fmt(swLap3):'—';
+    if(!swRunning&&swLap3===0){btn.textContent='Start';btn.style.background='#16a34a';}
+    else if(swRunning){btn.textContent='Stop — Record Lap 3';btn.style.background='#cc0000';}
+    else{btn.textContent='Retake';btn.style.background='#555';if(sub)sub.style.display='block';}
+    if(l3el)l3el.textContent=swLap3?fmt(swLap3):'—';
     return;
   }
+  if(swLapsDone===0&&!swRunning){btn.textContent='Start';btn.style.background='#16a34a';}
+  else if(swRunning&&swLapsDone===0){btn.textContent='Lap 1 — Keep Going';btn.style.background='#d97706';}
+  else if(swRunning&&swLapsDone===1){btn.textContent='Lap 2 — Stop';btn.style.background='#cc0000';if(l1el)l1el.textContent=fmt(swLap1);}
+  else if(swLapsDone===2){btn.textContent='Retake';btn.style.background='#555';if(l1el)l1el.textContent=fmt(swLap1);if(l2el)l2el.textContent=fmt(swLap2);if(sub)sub.style.display='block';}
+}
 
-  if(swLapsDone===0){
-    btn.textContent='Start'; btn.style.background='#16a34a';
-  } else if(swLapsDone===1 && swRunning){
-    btn.textContent='Lap 2 — Stop'; btn.style.background='#cc0000';
-    if(l1el) l1el.textContent=fmt(swLap1);
+function handleLapBtn(){
+  if(phase===3){handleLap3Btn();return;}
+  if(swLapsDone===0&&!swRunning){
+    swStart=Date.now();swRunning=true;
+    clearInterval(swTick);swTick=setInterval(updateDisplay,30);
+    const btn=document.getElementById('lap-btn');
+    if(btn){btn.textContent='Lap 1 — Keep Going';btn.style.background='#d97706';}
+  } else if(swRunning&&swLapsDone===0){
+    swLap1=Date.now()-swStart;swLapsDone=1;swStart=Date.now();
+    updateDisplay();updateLapBtn();
+  } else if(swRunning&&swLapsDone===1){
+    swLap2=Date.now()-swStart;clearInterval(swTick);swTick=null;swRunning=false;swLapsDone=2;
+    updateDisplay();updateLapBtn();
   } else if(swLapsDone===2){
-    btn.textContent='Retake'; btn.style.background='#555';
-    if(l1el) l1el.textContent=fmt(swLap1);
-    if(l2el) l2el.textContent=fmt(swLap2);
-    if(sub) sub.style.display='block';
+    swReset();updateDisplay();updateLapBtn();
+    const sub=document.getElementById('submit-btn');if(sub)sub.style.display='none';
+  }
+}
+
+function handleLap3Btn(){
+  if(!swRunning&&swLap3===0){
+    swStart=Date.now();swRunning=true;
+    clearInterval(swTick);swTick=setInterval(updateDisplay,30);
+    const btn=document.getElementById('lap-btn');if(btn){btn.textContent='Stop — Record Lap 3';btn.style.background='#cc0000';}
   } else if(swRunning){
-    btn.textContent='Lap 1 — Keep Going'; btn.style.background='#d97706';
+    swLap3=Date.now()-swStart;clearInterval(swTick);swTick=null;swRunning=false;
+    updateDisplay();updateLapBtn();
+  } else {
+    swLap3=0;swReset();updateDisplay();updateLapBtn();
+    const sub=document.getElementById('submit-btn');if(sub)sub.style.display='none';
   }
 }
 
 async function doSubmit(){
-  const n=(document.getElementById('inp-name')?.value||'').trim();
+  const nameEl=document.getElementById('inp-name');
+  const n=(nameEl?.value||'').trim();
   const err=document.getElementById('err');
   err.style.display='none';
   if(!n){err.style.display='block';err.textContent='Enter your name first';return}
   if(phase===1){
     if(swLapsDone<2){err.style.display='block';err.textContent='Complete both laps first';return}
-    const btn=document.getElementById('submit-btn');
-    if(btn){btn.textContent='Saving...';btn.disabled=true;}
+    const btn=document.getElementById('submit-btn');if(btn){btn.textContent='Saving...';btn.disabled=true;}
     try{
       const existing=entries.find(e=>e.name.toLowerCase()===n.toLowerCase());
       const entry={id:existing?existing.id:Date.now(),name:n,ms1:swLap1,ms2:swLap2,ms3:existing?existing.ms3:0,ts:Date.now()};
       const idx=entries.findIndex(e=>e.name.toLowerCase()===n.toLowerCase());
       if(idx>=0)entries[idx]=entry;else entries.push(entry);
       await postEntry(entry);
-      await new Promise(r=>setTimeout(r,1200));
-      await fetchEntries();
-      submittedName=n; swReset(); renderApp();
+      await new Promise(r=>setTimeout(r,1200));await fetchEntries();
+      submittedName=n;swReset();renderApp();
     }catch(e){
-      const btn=document.getElementById('submit-btn');
-      if(btn){btn.textContent='Submit';btn.disabled=false;}
+      const btn=document.getElementById('submit-btn');if(btn){btn.textContent='Submit';btn.disabled=false;}
       err.style.display='block';err.textContent='Sync failed — check connection';
     }
   } else {
     if(!swLap3){err.style.display='block';err.textContent='Record your Lap 3 time first';return}
     const existing=entries.find(e=>e.name.toLowerCase()===n.toLowerCase());
-    if(!existing){err.style.display='block';err.textContent='Name not found — must match your Lap 1 & 2 entry';return}
-    const btn=document.getElementById('submit-btn');
-    if(btn){btn.textContent='Saving...';btn.disabled=true;}
+    if(!existing){err.style.display='block';err.textContent='Name not found — must match Lap 1 & 2 entry';return}
+    const btn=document.getElementById('submit-btn');if(btn){btn.textContent='Saving...';btn.disabled=true;}
     try{
       const entry={...existing,ms3:swLap3,ts:Date.now()};
       const idx=entries.findIndex(e=>e.name.toLowerCase()===n.toLowerCase());
       if(idx>=0)entries[idx]=entry;
       await postEntry(entry);
-      await new Promise(r=>setTimeout(r,1200));
-      await fetchEntries();
-      submittedName=n; swReset(); renderApp();
+      await new Promise(r=>setTimeout(r,1200));await fetchEntries();
+      submittedName=n;swReset();renderApp();
     }catch(e){
-      const btn=document.getElementById('submit-btn');
-      if(btn){btn.textContent='Submit';btn.disabled=false;}
+      const btn=document.getElementById('submit-btn');if(btn){btn.textContent='Submit';btn.disabled=false;}
       err.style.display='block';err.textContent='Sync failed — check connection';
     }
   }
 }
 
-function tryUnlockLap3(){
-  const code=(document.getElementById('unlock-code')?.value||'').trim().toUpperCase();
-  const err=document.getElementById('unlock-err');
-  if(code===LAP3_CODE){phase=3;swReset();submittedName='';renderApp();}
-  else{if(err)err.style.display='block';}
+async function doAdminAction(){
+  const p=document.getElementById('pin-inp')?.value;
+  const err=document.getElementById('pin-err');
+  if(p!==ADMIN_PIN){if(err)err.style.display='block';return;}
+  if(adminModalMode==='reset'){
+    await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({reset:true})});
+    await new Promise(r=>setTimeout(r,1200));await fetchEntries();
+    phase=1;swReset();submittedName='';
+  } else {
+    // Unlock lap 3 — write phase record to sheet
+    await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({setPhase:3})});
+    await new Promise(r=>setTimeout(r,1200));await fetchEntries();
+    swReset();submittedName='';
+  }
+  hideAdminModal();renderApp();
 }
 
-async function doReset(){
-  const p=document.getElementById('pin-inp')?.value;
-  if(p===ADMIN_PIN){
-    await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({reset:true})});
-    await new Promise(r=>setTimeout(r,1200));
-    await fetchEntries();
-    phase=1; swReset(); submittedName='';
-    hideAdminModal(); renderApp();
-  }else{
-    const e=document.getElementById('pin-err');
-    if(e)e.style.display='block';
-  }
-}
-function showAdminModal(){
+function showAdminModal(mode='reset'){
+  adminModalMode=mode;
   const m=document.getElementById('admin-modal');
+  const title=document.getElementById('admin-title');
+  const subtitle=document.getElementById('admin-subtitle');
+  const actionBtn=document.getElementById('admin-action-btn');
+  if(title) title.textContent=mode==='reset'?'Admin Reset':'Unlock Lap 3';
+  if(subtitle) subtitle.textContent=mode==='reset'?'Enter PIN to clear all times':'Enter PIN to open Lap 3 for everyone';
+  if(actionBtn){actionBtn.textContent=mode==='reset'?'Reset':'Unlock Lap 3';actionBtn.style.background=mode==='reset'?'#cc0000':'#16a34a';}
   if(m){m.style.display='flex';document.getElementById('pin-inp').value='';document.getElementById('pin-err').style.display='none';}
 }
-function hideAdminModal(){document.getElementById('admin-modal').style.display='none';}
+function hideAdminModal(){const m=document.getElementById('admin-modal');if(m)m.style.display='none';}
 
 function renderApp(){
   document.getElementById('app').innerHTML=currentView==='dashboard'?renderDashboard():renderEntry();
   if(currentView==='dashboard'){
     const qrEl=document.getElementById('qr-box');
-    if(qrEl) new QRCode(qrEl,{text:location.href.split('?')[0],width:100,height:100,colorDark:'#ffffff',colorLight:'#1a1a1a'});
+    if(qrEl)new QRCode(qrEl,{text:location.href.split('?')[0],width:100,height:100,colorDark:'#ffffff',colorLight:'#1a1a1a'});
   } else {
-    // Restore live timer if running
-    if(swRunning){
-      clearInterval(swTick);
-      swTick=setInterval(updateDisplay,30);
-    }
-    updateDisplay();
-    updateLapBtn();
+    if(swRunning){clearInterval(swTick);swTick=setInterval(updateDisplay,30);}
+    updateDisplay();updateLapBtn();
   }
 }
 
@@ -307,7 +254,6 @@ function renderEntry(){
     </div>`;
   }).join('');
 
-  // Post-submit confirmation
   if(submittedName){
     const e=entries.find(x=>x.name.toLowerCase()===submittedName.toLowerCase());
     const gap=e&&isFinal?e.ms3-(e.ms1+e.ms2):null;
@@ -316,8 +262,7 @@ function renderEntry(){
       <div style="background:rgba(232,180,0,0.08);border:1px solid rgba(232,180,0,0.35);border-radius:8px;padding:32px 24px;text-align:center">
         <div style="font-size:40px">⭐</div>
         <div style="font-size:20px;font-weight:900;margin-top:10px;letter-spacing:1px;text-transform:uppercase">${isFinal?'Lap 3 Recorded!':'Times Recorded!'}</div>
-        ${gap!==null?`
-        <div style="font-size:36px;font-weight:900;margin-top:14px;font-family:'Courier New',monospace;color:${gap<0?'#4ade80':gap===0?'#e8b400':'#f87171'};letter-spacing:2px">${fmtGap(gap)}</div>
+        ${gap!==null?`<div style="font-size:36px;font-weight:900;margin-top:14px;font-family:'Courier New',monospace;color:${gap<0?'#4ade80':gap===0?'#e8b400':'#f87171'};letter-spacing:2px">${fmtGap(gap)}</div>
         <div style="font-size:12px;opacity:.45;margin-top:4px;letter-spacing:1px">${gap<0?'Beat your combined time!':gap===0?'Exactly matched!':'Over your combined time'}</div>`
         :e?`<div style="font-family:'Courier New',monospace;font-size:28px;font-weight:900;color:#e8b400;margin-top:14px">${fmt(e.ms1+e.ms2)}</div><div style="font-size:11px;opacity:.4;margin-top:4px;letter-spacing:2px">L1 ${fmt(e.ms1)} &nbsp; L2 ${fmt(e.ms2)}</div>`:''}
         <div style="font-size:13px;opacity:.45;margin-top:14px;letter-spacing:1px">Check the big screen</div>
@@ -330,32 +275,30 @@ function renderEntry(){
 
   return`<div style="min-height:100vh;background:#0f0f0f;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px">
   <div style="width:100%;max-width:400px">
-
-    <!-- Header -->
     <div style="text-align:center;margin-bottom:20px">
       <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:#cc0000;border-radius:6px;margin-bottom:10px">
         <span style="font-size:18px;font-weight:900;color:#fff">TEE</span>
       </div>
       <div style="font-size:20px;font-weight:900;letter-spacing:3px;text-transform:uppercase">Multi-tasking</div>
-      <div style="font-size:11px;letter-spacing:4px;opacity:.45;text-transform:uppercase;margin-top:3px">${isFinal?'Lap 3':'Laps 1 & 2'}</div>
+      <div style="display:inline-block;margin-top:6px;padding:4px 14px;background:${isFinal?'rgba(232,180,0,0.15)':'rgba(255,255,255,0.06)'};border:1px solid ${isFinal?'rgba(232,180,0,0.4)':'rgba(255,255,255,0.1)'};border-radius:20px;font-size:10px;letter-spacing:3px;text-transform:uppercase;color:${isFinal?'#e8b400':'rgba(255,255,255,0.5)'}">
+        ${isFinal?'⭐ Lap 3 Unlocked':'Laps 1 & 2'}
+      </div>
     </div>
 
-    <!-- Name input -->
     <div style="margin-bottom:16px">
-      <label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px">Your Name ${isFinal?'(must match Lap 1 & 2)':''}</label>
-      ${isFinal?`
-      <select id="inp-name" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:16px;border-radius:4px;font-family:inherit;appearance:none">
+      <label style="display:block;font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:8px">Your Name</label>
+      ${isFinal?`<select id="inp-name" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:16px;border-radius:4px;font-family:inherit;appearance:none">
         <option value="">— Select your name —</option>
         ${names12.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join('')}
-      </select>`:`
-      <input id="inp-name" placeholder="e.g. The Stig" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:18px;border-radius:4px;font-family:inherit"/>`}
+      </select>`:`<input id="inp-name" placeholder="e.g. The Stig" style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:14px 16px;font-size:18px;border-radius:4px;font-family:inherit"/>`}
     </div>
 
-    <!-- Stopwatch display -->
     <div style="background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px 16px;margin-bottom:16px;text-align:center">
       <div id="sw-display" style="font-family:'Courier New',monospace;font-size:52px;font-weight:900;letter-spacing:2px;color:#fff;line-height:1">0.00</div>
-      ${!isFinal?`
-      <div style="display:flex;justify-content:center;gap:24px;margin-top:12px">
+      ${isFinal?`<div style="text-align:center;margin-top:10px">
+        <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.4;margin-bottom:4px">Lap 3</div>
+        <div id="lap3-display" style="font-family:'Courier New',monospace;font-size:18px;font-weight:900;color:rgba(255,255,255,0.6)">—</div>
+      </div>`:`<div style="display:flex;justify-content:center;gap:24px;margin-top:12px">
         <div style="text-align:center">
           <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.4;margin-bottom:4px">Lap 1</div>
           <div id="lap1-display" style="font-family:'Courier New',monospace;font-size:18px;font-weight:900;color:rgba(255,255,255,0.6)">—</div>
@@ -365,44 +308,19 @@ function renderEntry(){
           <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.4;margin-bottom:4px">Lap 2</div>
           <div id="lap2-display" style="font-family:'Courier New',monospace;font-size:18px;font-weight:900;color:rgba(255,255,255,0.6)">—</div>
         </div>
-      </div>`:`
-      <div style="text-align:center;margin-top:10px">
-        <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.4;margin-bottom:4px">Lap 3</div>
-        <div id="lap3-display" style="font-family:'Courier New',monospace;font-size:18px;font-weight:900;color:rgba(255,255,255,0.6)">—</div>
       </div>`}
     </div>
 
-    <!-- Lap button -->
-    <button id="lap-btn" class="lap-btn" onclick="handleLapBtn()" style="background:#16a34a;margin-bottom:10px">
-      ${isFinal?'Start':'Start'}
-    </button>
-
-    <!-- Submit button (hidden until laps done) -->
-    <button id="submit-btn" onclick="doSubmit()" style="display:none;width:100%;background:#cc0000;border:none;color:#fff;padding:16px;font-size:16px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px">
-      Submit
-    </button>
-
+    <button id="lap-btn" class="lap-btn" onclick="handleLapBtn()" style="background:#16a34a;margin-bottom:10px">Start</button>
+    <button id="submit-btn" onclick="doSubmit()" style="display:none;width:100%;background:#cc0000;border:none;color:#fff;padding:16px;font-size:16px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px">Submit</button>
     <div id="err" style="color:#f87171;font-size:13px;margin-bottom:10px;text-align:center;letter-spacing:1px;display:none"></div>
 
-    ${!isFinal?`
-    <!-- Unlock Lap 3 -->
-    <div style="margin-top:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.07);border-radius:8px;padding:14px">
-      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.3;margin-bottom:10px;text-align:center">Unlock Lap 3</div>
-      <div style="display:flex;gap:8px">
-        <input id="unlock-code" placeholder="Enter code" onkeydown="if(event.key==='Enter')tryUnlockLap3()" style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);color:#fff;padding:10px 14px;font-size:14px;border-radius:4px;font-family:monospace;letter-spacing:2px"/>
-        <button onclick="tryUnlockLap3()" style="background:#444;border:none;color:#fff;padding:10px 16px;border-radius:4px;font-family:inherit;font-size:12px;letter-spacing:1px;text-transform:uppercase">Unlock</button>
-      </div>
-      <div id="unlock-err" style="display:none;color:#f87171;font-size:11px;margin-top:8px;text-align:center;letter-spacing:1px">Wrong code</div>
-    </div>`:''}
-
-    ${board.length>0?`<div style="margin-top:20px">
+    ${board.length>0?`<div style="margin-top:16px">
       <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.28;text-align:center;margin-bottom:10px">Current standings</div>
       ${miniRows}
     </div>`:''}
 
-    <button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">
-      Open Dashboard View →
-    </button>
+    <button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">Open Dashboard View →</button>
   </div>
 </div>`;
 }
@@ -413,8 +331,7 @@ function renderDashboard(){
   const rows=board.length===0
     ?`<div style="text-align:center;padding:80px 0;opacity:.22;font-size:20px;letter-spacing:4px;text-transform:uppercase">No times set yet</div>`
     :board.map((e,i)=>{
-      const isFirst=i===0;
-      const combined=e.ms1+e.ms2;
+      const isFirst=i===0,combined=e.ms1+e.ms2;
       if(isFinal){
         const gap=e.ms3-combined;
         return`<div class="row" style="display:flex;align-items:center;gap:12px;background:${isFirst?'linear-gradient(90deg,rgba(232,180,0,0.14),rgba(232,180,0,0.03))':'rgba(255,255,255,0.04)'};border:1px solid ${isFirst?'rgba(232,180,0,0.45)':'rgba(255,255,255,0.07)'};border-radius:6px;padding:12px 16px;margin-bottom:10px">
@@ -463,9 +380,10 @@ function renderDashboard(){
         <div style="font-size:11px;letter-spacing:4px;opacity:.7;text-transform:uppercase;margin-top:3px">${isFinal?'Final Results — Lap 3':'Leaderboard — Laps 1 & 2'}</div>
       </div>
     </div>
-    <div style="display:flex;gap:10px">
+    <div style="display:flex;gap:10px;align-items:center">
+      ${phase===1?`<button onclick="showAdminModal('unlaplap3')" style="background:rgba(22,163,74,0.2);border:2px solid rgba(22,163,74,0.6);color:#4ade80;padding:8px 16px;font-size:12px;letter-spacing:1px;border-radius:3px;font-family:inherit;text-transform:uppercase">Unlock Lap 3</button>`:`<div style="font-size:11px;color:#4ade80;letter-spacing:2px;text-transform:uppercase;opacity:.7">⭐ Lap 3 Open</div>`}
       <button onclick="currentView='entry';renderApp()" style="background:transparent;border:2px solid rgba(255,255,255,0.4);color:#fff;padding:8px 16px;font-size:12px;letter-spacing:1px;border-radius:3px;font-family:inherit;text-transform:uppercase">Entry Mode</button>
-      <button onclick="showAdminModal()" style="background:transparent;border:2px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.4);padding:8px 12px;font-size:12px;border-radius:3px;font-family:inherit">Reset</button>
+      <button onclick="showAdminModal('reset')" style="background:transparent;border:2px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.4);padding:8px 12px;font-size:12px;border-radius:3px;font-family:inherit">Reset</button>
     </div>
   </div>
   <div style="display:flex;gap:24px;padding:24px 28px;max-width:1200px;margin:0 auto">
@@ -483,16 +401,16 @@ function renderDashboard(){
   </div>
   <div id="admin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);align-items:center;justify-content:center;z-index:99">
     <div style="background:#1c1c1c;border:1px solid rgba(255,255,255,0.13);border-radius:8px;padding:32px;width:300px;text-align:center">
-      <div style="font-size:17px;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">Admin Reset</div>
-      <div style="font-size:12px;opacity:.35;letter-spacing:1px;margin-bottom:20px">Enter PIN to clear all times</div>
-      <input id="pin-inp" type="password" placeholder="PIN" onkeydown="if(event.key==='Enter')doReset()"
+      <div id="admin-title" style="font-size:17px;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">Admin Reset</div>
+      <div id="admin-subtitle" style="font-size:12px;opacity:.35;letter-spacing:1px;margin-bottom:20px">Enter PIN to clear all times</div>
+      <input id="pin-inp" type="password" placeholder="PIN" onkeydown="if(event.key==='Enter')doAdminAction()"
         style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.18);color:#fff;padding:10px 14px;font-size:22px;border-radius:4px;text-align:center;font-family:monospace;margin-bottom:8px"/>
       <div id="pin-err" style="color:#f87171;font-size:12px;margin-bottom:8px;display:none">Wrong PIN</div>
       <div style="display:flex;gap:8px;margin-top:8px">
         <button onclick="hideAdminModal()" style="flex:1;background:transparent;border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.55);padding:10px;border-radius:4px;font-family:inherit;font-size:13px">Cancel</button>
-        <button onclick="doReset()" style="flex:1;background:#cc0000;border:none;color:#fff;padding:10px;border-radius:4px;font-family:inherit;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase">Reset</button>
+        <button id="admin-action-btn" onclick="doAdminAction()" style="flex:1;background:#cc0000;border:none;color:#fff;padding:10px;border-radius:4px;font-family:inherit;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase">Reset</button>
       </div>
-      <div style="font-size:10px;opacity:.2;margin-top:14px;letter-spacing:1px">Default PIN: 1234</div>
+      <div style="font-size:10px;opacity:.2;margin-top:14px;letter-spacing:1px">PIN: 1234</div>
     </div>
   </div>
 </div>`;
@@ -500,15 +418,8 @@ function renderDashboard(){
 
 (async()=>{
   document.getElementById('app').innerHTML=`<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0a;font-size:14px;letter-spacing:3px;text-transform:uppercase;opacity:.4">Connecting...</div>`;
-  try{
-    await fetchEntries();
-    renderApp();
-    setInterval(pollEntries,4000);
-  }catch(e){
-    console.warn('Initial fetch failed:',e);
-    renderApp();
-    setInterval(pollEntries,4000);
-  }
+  try{await fetchEntries();renderApp();setInterval(pollEntries,4000);}
+  catch(e){console.warn('Initial fetch failed:',e);renderApp();setInterval(pollEntries,4000);}
 })();
 </script>
 </body>
