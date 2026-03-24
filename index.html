@@ -103,28 +103,34 @@ function swStartTimer(){
 }
 
 function handleLapBtn(){
-  if(phase===3){
-    handleLap3Btn(); return;
-  }
-  if(swLapsDone===0){
-    // Start timer
+  if(phase===3){ handleLap3Btn(); return; }
+  if(swLapsDone===0 && !swRunning){
+    // First tap — start timer
     swStart=Date.now();
     swRunning=true;
     swLapsDone=0;
+    clearInterval(swTick);
     swTick=setInterval(updateDisplay,30);
-    updateLapBtn();
-  } else if(swLapsDone===1 && swRunning){
-    // Record lap 2 — stop timer
-    swLap2=Date.now()-swStart;
-    clearInterval(swTick); swRunning=false; swLapsDone=2;
-    updateDisplay(); updateLapBtn();
-  } else if(swRunning){
-    // Record lap 1 — keep running
+    // Update button label immediately
+    const btn=document.getElementById('lap-btn');
+    if(btn){btn.textContent='Lap 1 — Keep Going';btn.style.background='#d97706';}
+  } else if(swRunning && swLapsDone===0){
+    // Second tap — record lap 1, keep running
     swLap1=Date.now()-swStart;
     swLapsDone=1;
-    // Reset start for lap 2
-    swStart=Date.now();
-    updateLapBtn();
+    swStart=Date.now(); // reset for lap 2
+    updateDisplay(); updateLapBtn();
+  } else if(swRunning && swLapsDone===1){
+    // Third tap — record lap 2, stop
+    swLap2=Date.now()-swStart;
+    clearInterval(swTick); swTick=null;
+    swRunning=false; swLapsDone=2;
+    updateDisplay(); updateLapBtn();
+  } else if(swLapsDone===2){
+    // Retake — reset everything
+    swReset(); updateDisplay(); updateLapBtn();
+    const sub=document.getElementById('submit-btn');
+    if(sub) sub.style.display='none';
   }
 }
 
