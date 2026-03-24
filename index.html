@@ -70,7 +70,6 @@ async function fetchEntries(){
   const res=await fetch(API+'?t='+Date.now());
   const data=await res.json();
   entries=data.map(e=>({...e,ms1:Number(e.ms1)||0,ms2:Number(e.ms2)||0,ms3:Number(e.ms3)||0}));
-  if(entries.some(e=>e.ms3>0)&&phase===1) phase=3;
 }
 async function postEntry(entry){
   await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify(entry)});
