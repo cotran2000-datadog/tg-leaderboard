@@ -135,6 +135,7 @@ function handleLapBtn(){
   } else if(swRunning&&swLapsDone===1){
     swLap2=Date.now()-swStart;clearInterval(swTick);swTick=null;swRunning=false;swLapsDone=2;
     updateDisplay();updateLapBtn();
+    doSubmit();
   } else if(swLapsDone===2){
     swReset();updateDisplay();updateLapBtn();
     const sub=document.getElementById('submit-btn');if(sub)sub.style.display='none';
@@ -151,6 +152,7 @@ function handleLap3Btn(){
     swLap3=elapsed;
     clearInterval(swTick);swTick=null;swRunning=false;
     updateDisplay();updateLapBtn();
+    doSubmit();
   } else {
     swLap3=0;swReset();updateDisplay();updateLapBtn();
     const sub=document.getElementById('submit-btn');if(sub)sub.style.display='none';
