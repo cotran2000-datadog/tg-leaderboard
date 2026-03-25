@@ -96,7 +96,8 @@ function updateDisplay(){
   if(!swRunning&&swLapsDone===0){el.textContent='0.00';return;}
   if(swLapsDone===2){el.textContent=fmtLive(swLap1+swLap2);return;}
   const elapsed=Date.now()-swStart;
-  el.textContent=fmtLive(swLapsDone===1?swLap1+elapsed:elapsed);
+  // During lap 2, show only lap 2 elapsed (not cumulative)
+  el.textContent=fmtLive(elapsed);
 }
 
 function updateLapBtn(){
@@ -128,7 +129,9 @@ function handleLapBtn(){
     if(btn){btn.textContent='Lap 1 — Keep Going';btn.style.background='#d97706';}
   } else if(swRunning&&swLapsDone===0){
     swLap1=Date.now()-swStart;swLapsDone=1;swStart=Date.now();
-    updateDisplay();updateLapBtn();
+    // Reset display to 0 for lap 2
+    const el=document.getElementById('sw-display');if(el)el.textContent='0.00';
+    updateLapBtn();
   } else if(swRunning&&swLapsDone===1){
     swLap2=Date.now()-swStart;clearInterval(swTick);swTick=null;swRunning=false;swLapsDone=2;
     updateDisplay();updateLapBtn();
