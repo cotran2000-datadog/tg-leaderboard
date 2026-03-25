@@ -168,7 +168,7 @@ async function doSubmit(){
     const btn=document.getElementById('submit-btn');if(btn){btn.textContent='Saving...';btn.disabled=true;}
     try{
       const existing=entries.find(e=>e.name.toLowerCase()===n.toLowerCase());
-      const entry={id:existing?existing.id:Date.now(),name:n,ms1:swLap1,ms2:swLap2,ms3:existing?existing.ms3:0,ts:Date.now()};
+      const entry={id:existing?existing.id:Date.now(),name:n,ms1:swLap1,ms2:swLap2,ms3:existing?Number(existing.ms3)||0:0,ts:Date.now()};
       const idx=entries.findIndex(e=>e.name.toLowerCase()===n.toLowerCase());
       if(idx>=0)entries[idx]=entry;else entries.push(entry);
       await postEntry(entry);
@@ -231,7 +231,7 @@ function renderApp(){
   document.getElementById('app').innerHTML=currentView==='dashboard'?renderDashboard():renderEntry();
   if(currentView==='dashboard'){
     const qrEl=document.getElementById('qr-box');
-    if(qrEl)new QRCode(qrEl,{text:location.href.split('?')[0],width:100,height:100,colorDark:'#ffffff',colorLight:'#1a1a1a'});
+            if(qrEl)new QRCode(qrEl,{text:location.href.split('?')[0],width:160,height:160,colorDark:'#ffffff',colorLight:'#1a1a1a'});
   } else {
     if(swRunning){clearInterval(swTick);swTick=setInterval(updateDisplay,30);}
     updateDisplay();updateLapBtn();
@@ -393,7 +393,7 @@ function renderDashboard(){
   </div>
   <div style="display:flex;gap:24px;padding:24px 28px;max-width:1200px;margin:0 auto">
     <div style="flex:1">${rows}</div>
-    <div style="width:160px;flex-shrink:0;padding-top:8px">
+          <div style="width:220px;flex-shrink:0;padding-top:8px">
       <div style="background:#1a1a1a;border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:16px;text-align:center">
         <div style="font-size:9px;letter-spacing:3px;text-transform:uppercase;opacity:.45;margin-bottom:12px">Scan to enter</div>
         <div id="qr-box" style="background:#1a1a1a;display:inline-block"></div>
