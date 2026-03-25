@@ -213,6 +213,17 @@ async function doAdminAction(mode){
 function showAdminModal(){}
 function hideAdminModal(){}
 
+function promptDashboard(){
+  const box=document.getElementById('dash-pin-box');
+  if(box){box.style.display=box.style.display==='none'?'block':'none';document.getElementById('dash-pin-inp')?.focus();}
+}
+function checkDashPin(){
+  const p=document.getElementById('dash-pin-inp')?.value;
+  const err=document.getElementById('dash-pin-err');
+  if(p===ADMIN_PIN){currentView='dashboard';renderApp();}
+  else{if(err)err.style.display='block';}
+}
+
 function renderApp(){
   document.getElementById('app').innerHTML=currentView==='dashboard'?renderDashboard():renderEntry();
   if(currentView==='dashboard'){
@@ -311,7 +322,16 @@ function renderEntry(){
       ${miniRows}
     </div>`:''}
 
-    <button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">Open Dashboard View →</button>
+    <button onclick="promptDashboard()" style="width:100%;margin-top:16px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">Open Dashboard View →</button>
+    <div id="dash-pin-box" style="display:none;margin-top:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:14px">
+      <div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.35;margin-bottom:10px;text-align:center">Admin PIN</div>
+      <div style="display:flex;gap:8px">
+        <input id="dash-pin-inp" type="password" placeholder="PIN" onkeydown="if(event.key==='Enter')checkDashPin()"
+          style="flex:1;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:#fff;padding:10px 14px;font-size:18px;border-radius:4px;text-align:center;font-family:monospace;letter-spacing:3px"/>
+        <button onclick="checkDashPin()" style="background:#cc0000;border:none;color:#fff;padding:10px 16px;border-radius:4px;font-family:inherit;font-size:12px;letter-spacing:1px;text-transform:uppercase">Go</button>
+      </div>
+      <div id="dash-pin-err" style="display:none;color:#f87171;font-size:11px;margin-top:8px;text-align:center;letter-spacing:1px">Wrong PIN</div>
+    </div>
   </div>
 </div>`;
 }
