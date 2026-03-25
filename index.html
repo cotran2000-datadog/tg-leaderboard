@@ -197,35 +197,21 @@ async function doSubmit(){
   }
 }
 
-async function doAdminAction(){
-  const p=document.getElementById('pin-inp')?.value;
-  const err=document.getElementById('pin-err');
-  if(p!==ADMIN_PIN){if(err)err.style.display='block';return;}
-  if(adminModalMode==='reset'){
+async function doAdminAction(mode){
+  if(mode==='reset'){
     await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({reset:true})});
     await new Promise(r=>setTimeout(r,1200));await fetchEntries();
     phase=1;swReset();submittedName='';
   } else {
-    // Unlock lap 3 — write phase record to sheet
     await fetch(API,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},body:JSON.stringify({setPhase:3})});
     await new Promise(r=>setTimeout(r,1200));await fetchEntries();
     swReset();submittedName='';
   }
-  hideAdminModal();renderApp();
+  renderApp();
 }
 
-function showAdminModal(mode='reset'){
-  adminModalMode=mode;
-  const m=document.getElementById('admin-modal');
-  const title=document.getElementById('admin-title');
-  const subtitle=document.getElementById('admin-subtitle');
-  const actionBtn=document.getElementById('admin-action-btn');
-  if(title) title.textContent=mode==='reset'?'Admin Reset':'Unlock Lap 3';
-  if(subtitle) subtitle.textContent=mode==='reset'?'Enter PIN to clear all times':'Enter PIN to open Lap 3 for everyone';
-  if(actionBtn){actionBtn.textContent=mode==='reset'?'Reset':'Unlock Lap 3';actionBtn.style.background=mode==='reset'?'#cc0000':'#16a34a';}
-  if(m){m.style.display='flex';document.getElementById('pin-inp').value='';document.getElementById('pin-err').style.display='none';}
-}
-function hideAdminModal(){const m=document.getElementById('admin-modal');if(m)m.style.display='none';}
+function showAdminModal(){}
+function hideAdminModal(){}
 
 function renderApp(){
   document.getElementById('app').innerHTML=currentView==='dashboard'?renderDashboard():renderEntry();
@@ -386,9 +372,9 @@ function renderDashboard(){
       </div>
     </div>
     <div style="display:flex;gap:10px;align-items:center">
-      ${phase===1?`<button onclick="showAdminModal('unlaplap3')" style="background:rgba(22,163,74,0.2);border:2px solid rgba(22,163,74,0.6);color:#4ade80;padding:8px 16px;font-size:12px;letter-spacing:1px;border-radius:3px;font-family:inherit;text-transform:uppercase">Unlock Lap 3</button>`:`<div style="font-size:11px;color:#4ade80;letter-spacing:2px;text-transform:uppercase;opacity:.7">⭐ Lap 3 Open</div>`}
+      ${phase===1?`<button onclick="doAdminAction('unlaplap3')" style="background:rgba(22,163,74,0.2);border:2px solid rgba(22,163,74,0.6);color:#4ade80;padding:8px 16px;font-size:12px;letter-spacing:1px;border-radius:3px;font-family:inherit;text-transform:uppercase">Unlock Lap 3</button>`:`<div style="font-size:11px;color:#4ade80;letter-spacing:2px;text-transform:uppercase;opacity:.7">⭐ Lap 3 Open</div>`}
       <button onclick="currentView='entry';renderApp()" style="background:transparent;border:2px solid rgba(255,255,255,0.4);color:#fff;padding:8px 16px;font-size:12px;letter-spacing:1px;border-radius:3px;font-family:inherit;text-transform:uppercase">Entry Mode</button>
-      <button onclick="showAdminModal('reset')" style="background:transparent;border:2px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.4);padding:8px 12px;font-size:12px;border-radius:3px;font-family:inherit">Reset</button>
+      <button onclick="doAdminAction('reset')" style="background:transparent;border:2px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.4);padding:8px 12px;font-size:12px;border-radius:3px;font-family:inherit">Reset</button>
     </div>
   </div>
   <div style="display:flex;gap:24px;padding:24px 28px;max-width:1200px;margin:0 auto">
@@ -404,20 +390,7 @@ function renderDashboard(){
       </div>
     </div>
   </div>
-  <div id="admin-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);align-items:center;justify-content:center;z-index:99">
-    <div style="background:#1c1c1c;border:1px solid rgba(255,255,255,0.13);border-radius:8px;padding:32px;width:300px;text-align:center">
-      <div id="admin-title" style="font-size:17px;font-weight:900;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px">Admin Reset</div>
-      <div id="admin-subtitle" style="font-size:12px;opacity:.35;letter-spacing:1px;margin-bottom:20px">Enter PIN to clear all times</div>
-      <input id="pin-inp" type="password" placeholder="PIN" onkeydown="if(event.key==='Enter')doAdminAction()"
-        style="width:100%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.18);color:#fff;padding:10px 14px;font-size:22px;border-radius:4px;text-align:center;font-family:monospace;margin-bottom:8px"/>
-      <div id="pin-err" style="color:#f87171;font-size:12px;margin-bottom:8px;display:none">Wrong PIN</div>
-      <div style="display:flex;gap:8px;margin-top:8px">
-        <button onclick="hideAdminModal()" style="flex:1;background:transparent;border:1px solid rgba(255,255,255,0.18);color:rgba(255,255,255,0.55);padding:10px;border-radius:4px;font-family:inherit;font-size:13px">Cancel</button>
-        <button id="admin-action-btn" onclick="doAdminAction()" style="flex:1;background:#cc0000;border:none;color:#fff;padding:10px;border-radius:4px;font-family:inherit;font-size:13px;font-weight:900;letter-spacing:1px;text-transform:uppercase">Reset</button>
-      </div>
-      <div style="font-size:10px;opacity:.2;margin-top:14px;letter-spacing:1px">PIN: 1234</div>
-    </div>
-  </div>
+
 </div>`;
 }
 
