@@ -266,7 +266,7 @@ function renderEntry(){
         <div style="font-size:12px;opacity:.45;margin-top:4px;letter-spacing:1px">${gap<0?'Beat your combined time!':gap===0?'Exactly matched!':'Over your combined time'}</div>`
         :e?`<div style="font-family:'Courier New',monospace;font-size:28px;font-weight:900;color:#e8b400;margin-top:14px">${fmt(e.ms1+e.ms2)}</div><div style="font-size:11px;opacity:.4;margin-top:4px;letter-spacing:2px">L1 ${fmt(e.ms1)} &nbsp; L2 ${fmt(e.ms2)}</div>`:''}
         <div style="font-size:13px;opacity:.45;margin-top:14px;letter-spacing:1px">Check the big screen</div>
-        <button onclick="submittedName='';renderApp()" style="margin-top:20px;background:#cc0000;border:none;color:#fff;padding:12px 28px;font-size:14px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:2px;text-transform:uppercase">Submit Again</button>
+        ${isFinal?`<button onclick="submittedName='';renderApp()" style="margin-top:20px;background:#cc0000;border:none;color:#fff;padding:12px 28px;font-size:14px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:2px;text-transform:uppercase">Submit Again</button>`:''}
       </div>
       ${board.length>0?`<div style="margin-top:24px"><div style="font-size:10px;letter-spacing:3px;text-transform:uppercase;opacity:.28;text-align:center;margin-bottom:12px">Current standings</div>${miniRows}</div>`:''}
       <button onclick="currentView='dashboard';renderApp()" style="width:100%;margin-top:20px;background:transparent;border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.35);padding:12px;font-size:12px;border-radius:4px;font-family:inherit;letter-spacing:2px;text-transform:uppercase">Open Dashboard →</button>
