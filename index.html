@@ -234,6 +234,18 @@ function renderApp(){
   } else {
     if(swRunning){clearInterval(swTick);swTick=setInterval(updateDisplay,30);}
     updateDisplay();updateLapBtn();
+    // Enable start only when name entered
+    const nameEl=document.getElementById('inp-name');
+    const lapBtn=document.getElementById('lap-btn');
+    if(nameEl&&lapBtn){
+      const checkName=()=>{
+        const hasName=nameEl.value.trim().length>0;
+        lapBtn.disabled=!hasName;
+        lapBtn.style.opacity=hasName?'1':'0.35';
+      };
+      nameEl.addEventListener('input',checkName);
+      checkName();
+    }
   }
 }
 
@@ -315,7 +327,7 @@ function renderEntry(){
       </div>`}
     </div>
 
-    <button id="lap-btn" class="lap-btn" onclick="handleLapBtn()" style="background:#16a34a;margin-bottom:10px">Start</button>
+    <button id="lap-btn" class="lap-btn" onclick="handleLapBtn()" style="background:#16a34a;margin-bottom:10px;opacity:0.35" disabled>Start</button>
     <button id="submit-btn" onclick="doSubmit()" style="display:none;width:100%;background:#cc0000;border:none;color:#fff;padding:16px;font-size:16px;border-radius:4px;font-family:inherit;font-weight:900;letter-spacing:3px;text-transform:uppercase;margin-bottom:10px">Submit</button>
     <div id="err" style="color:#f87171;font-size:13px;margin-bottom:10px;text-align:center;letter-spacing:1px;display:none"></div>
 
