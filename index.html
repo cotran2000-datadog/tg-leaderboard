@@ -147,7 +147,9 @@ function handleLap3Btn(){
     clearInterval(swTick);swTick=setInterval(updateDisplay,30);
     const btn=document.getElementById('lap-btn');if(btn){btn.textContent='Stop — Record Lap 3';btn.style.background='#cc0000';}
   } else if(swRunning){
-    swLap3=Date.now()-swStart;clearInterval(swTick);swTick=null;swRunning=false;
+    const elapsed=Date.now()-swStart;
+    swLap3=elapsed;
+    clearInterval(swTick);swTick=null;swRunning=false;
     updateDisplay();updateLapBtn();
   } else {
     swLap3=0;swReset();updateDisplay();updateLapBtn();
